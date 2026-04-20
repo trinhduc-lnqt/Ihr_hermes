@@ -1,0 +1,19 @@
+{
+  "name": "ihr-telegram-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bot": "node ./src/index.js",
+    "setup": "node ./scripts/setup.js",
+    "clean:private": "node ./scripts/cleanup-private-data.js",
+    "capture:checkin": "node ./src/captureCheckin.js",
+    "capture:unsafe-checkin": "set CAPTURE_ALLOW_POSTS=true&& node ./src/captureCheckin.js",
+    "install:browsers": "playwright install chromium"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "playwright": "^1.53.0",
+    "telegraf": "^4.16.3"
+  }
+}
