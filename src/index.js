@@ -27,9 +27,9 @@ const UI = {
   checkOut: "🚪 Check Out",
   status: "📊 Trạng thái",
   salary: "💰 Bảng lương",
-  salaryCurrent: "📄 Tháng hiện tại",
+  salaryCurrent: "📄 Tháng này",
   salaryPrevious: "🗂️ Tháng trước",
-  salaryRecent: "🕘 Các tháng gần đây",
+  salaryOther: "📚 Tháng khác",
   account: "👤 Tài khoản",
   deleteAccount: "🗑️ Xoá TK",
   backToMenu: "⬅️ Về menu",
@@ -174,18 +174,29 @@ function getMonthDateFromOffset(offset = 0, baseDate = new Date()) {
 function salaryKeyboard(baseDate = new Date()) {
   const current = getMonthDateFromOffset(0, baseDate);
   const previous = getMonthDateFromOffset(-1, baseDate);
-  const recentRows = [-2, -3, -4, -5].map((offset) => {
-    const date = getMonthDateFromOffset(offset, baseDate);
-    return Markup.button.callback(formatMonthLabel(date), `action:salary_month:${formatMonthLabel(date)}`);
-  });
 
   return Markup.inlineKeyboard([
     [Markup.button.callback(`${UI.salaryCurrent} (${formatMonthLabel(current)})`, `action:salary_month:${formatMonthLabel(current)}`)],
     [Markup.button.callback(`${UI.salaryPrevious} (${formatMonthLabel(previous)})`, `action:salary_month:${formatMonthLabel(previous)}`)],
-    [recentRows[0], recentRows[1]],
-    [recentRows[2], recentRows[3]],
+    [Markup.button.callback(UI.salaryOther, "action:salary_other")],
     [Markup.button.callback(UI.backToMenu, "action:menu")]
   ]);
+}
+
+function salaryOtherKeyboard(baseDate = new Date()) {
+  const monthButtons = [];
+  for (let offset = -2; offset >= -13; offset -= 1) {
+    const date = getMonthDateFromOffset(offset, baseDate);
+    monthButtons.push(Markup.button.callback(formatMonthLabel(date), `action:salary_month:${formatMonthLabel(date)}`));
+  }
+
+  const rows = [];
+  for (let i = 0; i < monthButtons.length; i += 2) {
+    rows.push(monthButtons.slice(i, i + 2));
+  }
+  rows.push([Markup.button.callback(UI.backToMenu, "action:salary")]);
+
+  return Markup.inlineKeyboard(rows);
 }
 
 function locationKeyboard() {
@@ -1004,6 +1015,11 @@ bot.action("action:checkout", async (ctx) => {
 bot.action("action:salary", async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply("Chon thang bang luong can xem nhe Sếp:", salaryKeyboard());
+});
+
+bot.action("action:salary_other", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply("Chon thang khac can xem nhe Sếp:", salaryOtherKeyboard());
 });
 
 bot.action(/^action:salary_month:(\d{2}\/\d{4})$/, async (ctx) => {
