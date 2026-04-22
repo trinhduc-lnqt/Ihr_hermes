@@ -199,6 +199,21 @@ function salaryOtherKeyboard(baseDate = new Date()) {
   return Markup.inlineKeyboard(rows);
 }
 
+async function replyOrEditMenu(ctx, text, markup) {
+  try {
+    if (ctx.updateType === "callback_query" && ctx.callbackQuery?.message) {
+      await ctx.editMessageText(text, markup);
+      return;
+    }
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (!/message is not modified/i.test(message)) {
+      console.warn("Menu edit failed, fallback to reply:", message);
+    }
+  }
+  await ctx.reply(text, markup);
+}
+
 function locationKeyboard() {
   return Markup.keyboard([[Markup.button.locationRequest(UI.sendLocation)]])
     .resize()
@@ -931,7 +946,7 @@ bot.hears(UI.status, async (ctx) => {
 });
 
 bot.hears(UI.salary, async (ctx) => {
-  await ctx.reply("Chon thang bang luong can xem nhe Sếp:", salaryKeyboard());
+  await replyOrEditMenu(ctx, "Chon thang bang luong can xem nhe Sếp:", salaryKeyboard());
 });
 
 bot.hears(UI.account, async (ctx) => {
@@ -983,7 +998,7 @@ bot.action("action:attendance", async (ctx) => {
 
 bot.action("action:menu", async (ctx) => {
   await ctx.answerCbQuery();
-  await ctx.reply("Chon thao tac:", keyboard());
+  await replyOrEditMenu(ctx, "Chon thao tac:", keyboard());
 });
 
 bot.action("action:checkin_reason", async (ctx) => {
@@ -1014,12 +1029,12 @@ bot.action("action:checkout", async (ctx) => {
 
 bot.action("action:salary", async (ctx) => {
   await ctx.answerCbQuery();
-  await ctx.reply("Chon thang bang luong can xem nhe Sếp:", salaryKeyboard());
+  await replyOrEditMenu(ctx, "Chon thang bang luong can xem nhe Sếp:", salaryKeyboard());
 });
 
 bot.action("action:salary_other", async (ctx) => {
   await ctx.answerCbQuery();
-  await ctx.reply("Chon thang khac can xem nhe Sếp:", salaryOtherKeyboard());
+  await replyOrEditMenu(ctx, "Chon thang khac can xem nhe Sếp:", salaryOtherKeyboard());
 });
 
 bot.action(/^action:salary_month:(\d{2}\/\d{4})$/, async (ctx) => {
@@ -1027,7 +1042,7 @@ bot.action(/^action:salary_month:(\d{2}\/\d{4})$/, async (ctx) => {
   const month = parseSalaryMonthInput(value);
   await ctx.answerCbQuery(month ? `Dang lay bang luong ${value}` : "Thang khong hop le");
   if (!month) {
-    await ctx.reply("Thang bang luong khong hop le.", salaryKeyboard());
+    await replyOrEditMenu(ctx, "Thang bang luong khong hop le.", salaryKeyboard());
     return;
   }
   await showSalary(ctx, month);
