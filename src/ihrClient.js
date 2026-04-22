@@ -93,6 +93,12 @@ async function ensureArtifactsDir(subdir = "") {
   return artifactsDir;
 }
 
+async function ensureTempSalaryDir(subdir = "") {
+  const tempDir = path.resolve("artifacts", "tmp-salary", subdir);
+  await mkdir(tempDir, { recursive: true });
+  return tempDir;
+}
+
 function xhrHeaders() {
   return {
     "x-requested-with": "XMLHttpRequest",
@@ -717,7 +723,7 @@ export async function getSalarySlip({ username, password, month = new Date(), is
     }
 
     const pdfBuffer = await fileResponse.body();
-    const artifactsDir = await ensureArtifactsDir();
+    const artifactsDir = await ensureTempSalaryDir();
     const filename = `salary-${username}-${year}-${pad(monthIndex + 1)}.pdf`;
     const filePath = path.join(artifactsDir, filename);
     await writeFile(filePath, pdfBuffer);
@@ -784,7 +790,7 @@ export async function renderSalarySlipPreviewImages({ username, password, relati
     }
 
     const safeMonth = String(monthLabel || "salary").replace(/[^0-9A-Za-z_-]+/g, "-");
-    const outputDir = await ensureArtifactsDir(`salary-images-${safeMonth}`);
+    const outputDir = await ensureTempSalaryDir(`salary-images-${safeMonth}`);
     const imagePath = path.join(outputDir, `salary-${safeMonth}-page-1.png`);
     await page.screenshot({ path: imagePath, fullPage: true });
 

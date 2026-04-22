@@ -1,4 +1,5 @@
 import net from "node:net";
+import { rm, unlink } from "node:fs/promises";
 import { Input } from "telegraf";
 
 import { Markup, Telegraf } from "telegraf";
@@ -431,24 +432,51 @@ async function sendHeartbeat() {
   }
 }
 
-async function sendSalaryResultToChat(chatId, result, prefixText = "") {
-  if (Array.isArray(result.previewImages) && result.previewImages.length) {
-    const media = result.previewImages.slice(0, 10).map((filePath, index) => ({
-      type: "photo",
-      media: Input.fromLocalFile(filePath),
-      caption: index === 0 ? `${prefixText}Bang luong ${result.monthLabel}`.trim() : undefined
-    }));
-    await bot.telegram.sendMediaGroup(chatId, media);
+async function cleanupSalaryFiles(result) {
+  const filePaths = [
+    ...(Array.isArray(result?.previewImages) ? result.previewImages : []),
+    ...(result?.filePath ? [result.filePath] : [])
+  ].filter(Boolean);
+
+  const uniquePaths = [...new Set(filePaths)];
+  for (const filePath of uniquePaths) {
+    await unlink(filePath).catch(() => {});
   }
 
-  if (result.filePath) {
-    await bot.telegram.sendDocument(
-      chatId,
-      Input.fromLocalFile(result.filePath, result.fileName || `salary-${result.monthLabel}.pdf`),
-      {
-        caption: `${prefixText}File PDF bang luong ${result.monthLabel}`.trim()
-      }
-    );
+  const imageDirs = [
+    ...new Set(
+      (Array.isArray(result?.previewImages) ? result.previewImages : [])
+        .map((filePath) => filePath.split("/").slice(0, -1).join("/"))
+        .filter(Boolean)
+    )
+  ];
+  for (const dirPath of imageDirs) {
+    await rm(dirPath, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function sendSalaryResultToChat(chatId, result, prefixText = "") {
+  try {
+    if (Array.isArray(result.previewImages) && result.previewImages.length) {
+      const media = result.previewImages.slice(0, 10).map((filePath, index) => ({
+        type: "photo",
+        media: Input.fromLocalFile(filePath),
+        caption: index === 0 ? `${prefixText}Bang luong ${result.monthLabel}`.trim() : undefined
+      }));
+      await bot.telegram.sendMediaGroup(chatId, media);
+    }
+
+    if (result.filePath) {
+      await bot.telegram.sendDocument(
+        chatId,
+        Input.fromLocalFile(result.filePath, result.fileName || `salary-${result.monthLabel}.pdf`),
+        {
+          caption: `${prefixText}File PDF bang luong ${result.monthLabel}`.trim()
+        }
+      );
+    }
+  } finally {
+    await cleanupSalaryFiles(result);
   }
 }
 
