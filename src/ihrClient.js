@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { chromium, request as playwrightRequest } from "playwright";
@@ -6,6 +6,7 @@ import { chromium, request as playwrightRequest } from "playwright";
 import { config } from "./config.js";
 
 const JOB_TRAN_ID = "CHECK_IN_OUT_MAP";
+const SALARY_PAGE_PATH = "/Hrm/Pr_Salary";
 const reverseGeocodeCache = new Map();
 
 function actionToType(action) {
@@ -97,6 +98,11 @@ function xhrHeaders() {
     "x-requested-with": "XMLHttpRequest",
     "accept-language": config.locale
   };
+}
+
+function formatDateIso(d) {
+  const pad = (v) => String(v).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 async function parseResponse(response) {
@@ -290,26 +296,25 @@ async function submitAttendanceHttp({ username, password, reason, action, geo, a
     }
 
     const checkType = actionToType(action);
+    const actionText = action === "checkout" ? "Check Out" : "Check In";
     const existingRows = await getJson(api, "/Hr_Time_Checkinout_Map/getcheck", { type: checkType });
     if (Array.isArray(existingRows) && existingRows.length > 0) {
-      return {
-        ok: false,
-        message:
-          action === "checkout"
-            ? "IHR dang bao da ton tai ban ghi Check Out cho thao tac nay. Bot chua tu dong ghi de."
-            : "IHR dang bao da ton tai ban ghi Check In cho thao tac nay. Bot chua tu dong ghi de."
-      };
+      // Dù có dữ liệu cũ, ta vẫn tiếp tục để ghi đè thay vì return false ngay
+      console.log(`Phat hien da co ban ghi ${actionText}. Tien hanh ghi de.`);
     }
 
     const addRowPayload = await getJson(api, "/Hr_Time_Checkinout_Map/AddRowNew");
     const addRow = addRowPayload?.[0];
-    if (!addRow?.PR_KEY) {
-      throw new Error("Khong tao duoc ban ghi tam tu IHR (AddRowNew).");
+    // Dù lấy AddRowNew lỗi, nếu đã có existingRows, ta sẽ tái sử dụng PR_KEY của nó để ghi đè
+    const targetRow = addRow?.PR_KEY ? addRow : existingRows?.[0];
+
+    if (!targetRow?.PR_KEY) {
+      throw new Error("Khong tao/lay duoc ban ghi tu IHR de thao tac.");
     }
 
     const multipart = buildAttendanceMultipart({
       managerPayload,
-      addRow,
+      addRow: targetRow,
       requestGeo,
       resolvedAddress,
       reason,
@@ -519,9 +524,14 @@ export async function probeIhrAvailability() {
   });
 
   try {
-    const response = await api.get(config.loginUrl, {
-      timeout: config.timeoutMs
-    });
+    const response = await Promise.race([
+      api.get(config.loginUrl, {
+        timeout: config.timeoutMs
+      }),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error(`IHR probe timeout after ${config.timeoutMs}ms`)), config.timeoutMs + 1000);
+      })
+    ]);
 
     if (!response.ok()) {
       const text = await response.text();
@@ -539,6 +549,194 @@ export async function probeIhrAvailability() {
     return {
       ok: false,
       message: error.message || "Khong ket noi duoc toi IHR."
+    };
+  } finally {
+    await api.dispose();
+  }
+}
+
+export async function getSalarySlip({ username, password, month = new Date(), isQuarter = false }) {
+  const api = await playwrightRequest.newContext({
+    baseURL: config.baseUrl,
+    ignoreHTTPSErrors: true,
+    extraHTTPHeaders: {
+      "accept-language": config.locale
+    }
+  });
+
+  try {
+    await loginHttp(api, { username, password });
+
+    const salaryPage = await api.get(SALARY_PAGE_PATH, { timeout: config.timeoutMs });
+    if (!salaryPage.ok()) {
+      const text = await salaryPage.text();
+      throw new Error(summarizeError("Mo man hinh bang luong", text, salaryPage.status()));
+    }
+
+    const salaryPageText = await salaryPage.text();
+
+    const dayStartResponse = await api.post("/Pr_Salary/GetDayStartPeriod", {
+      form: {},
+      headers: xhrHeaders(),
+      timeout: config.timeoutMs
+    });
+    const { data: dayStartData, text: dayStartText } = await parseResponse(dayStartResponse);
+    if (!dayStartResponse.ok()) {
+      throw new Error(summarizeError("Lay ngay dau ky luong", dayStartText, dayStartResponse.status()));
+    }
+
+    const dayStart = String(dayStartData?.[0]?.VAR_VALUE || "1");
+    const selectedMonth = new Date(month);
+    const year = selectedMonth.getFullYear();
+    const monthIndex = selectedMonth.getMonth();
+    const pad = (v) => String(v).padStart(2, "0");
+    const monthLabel = `${pad(monthIndex + 1)}/${year}`;
+
+    let startDate;
+    let endDate;
+    if (dayStart === "1") {
+      startDate = new Date(year, monthIndex, 1);
+      endDate = new Date(year, monthIndex + 1, 0);
+    } else {
+      startDate = new Date(year, monthIndex - 1, Number(dayStart));
+      endDate = new Date(year, monthIndex, Number(dayStart) - 1);
+    }
+
+    const employeeMatch = salaryPageText.match(/sessionStorage\.setItem\("EMPLOYEE_ID",\s*'([^']+)'\)/i);
+    const employeeId = String(employeeMatch?.[1] || "");
+
+    const tranIdCandidates = [
+      String((salaryPageText.match(/viewModel\.set\("Tran_Id",\s*"([^"]*)"\)/i) || [])[1] || ""),
+      String((salaryPageText.match(/Tran_Id\s*:\s*"([^"]*)"/i) || [])[1] || ""),
+      "PR_EMPLOYEE_SALARY_V1",
+      "PR_EMPLOYEE_SALARY"
+    ].filter(Boolean);
+
+    let tranId = "";
+    let typeData = null;
+    let lastTypeError = "";
+
+    for (const candidateTranId of [...new Set(tranIdCandidates)]) {
+      const timeKeepingTypeResponse = await api.post("/Pr_Salary/GetTimeKeepingType", {
+        form: {
+          startDate: formatDateIso(startDate),
+          endDate: formatDateIso(endDate),
+          TranId: candidateTranId,
+          EMPLOYEE_ID: employeeId,
+          EmployeeId: employeeId
+        },
+        headers: xhrHeaders(),
+        timeout: config.timeoutMs
+      });
+      const parsedType = await parseResponse(timeKeepingTypeResponse);
+      if (!timeKeepingTypeResponse.ok()) {
+        lastTypeError = summarizeError("Lay danh sach bang luong", parsedType.text, timeKeepingTypeResponse.status());
+        continue;
+      }
+      if (Array.isArray(parsedType.data) && parsedType.data.length) {
+        tranId = candidateTranId;
+        typeData = parsedType.data;
+        break;
+      }
+    }
+
+    if (!tranId || !Array.isArray(typeData)) {
+      throw new Error(lastTypeError || `Khong thay du lieu bang luong cho thang ${monthLabel}.`);
+    }
+
+    const firstType = Array.isArray(typeData) ? typeData[0] : null;
+    if (!firstType) {
+      return {
+        ok: false,
+        message: `Khong thay du lieu bang luong cho thang ${monthLabel}.`
+      };
+    }
+
+    const typeValue = String(
+      firstType.TIMEKEEPING_TYPE_ID ||
+      firstType.Type ||
+      firstType.value ||
+      ""
+    );
+    if (!typeValue) {
+      return {
+        ok: false,
+        message: `Khong xac dinh duoc ma bang luong cho thang ${monthLabel}.`
+      };
+    }
+
+    const printListResponse = await api.get("/TranPrint/LoadListByCondition", {
+      params: {
+        condition: ` TRAN_ID = 'PR_EMPLOYEE_SALARY${typeValue}' `
+      },
+      headers: xhrHeaders(),
+      timeout: config.timeoutMs
+    });
+    const { data: printListData, text: printListText } = await parseResponse(printListResponse);
+    if (!printListResponse.ok()) {
+      throw new Error(summarizeError("Lay mau in bang luong", printListText, printListResponse.status()));
+    }
+
+    const firstTemplate = Array.isArray(printListData) ? printListData[0] : null;
+    const templateKey = String(firstTemplate?.PR_KEY || "");
+    if (!templateKey) {
+      return {
+        ok: false,
+        message: `Khong tim thay mau in bang luong cho thang ${monthLabel}.`
+      };
+    }
+
+    const previewResponse = await api.get("/Pr_Salary/PreviewSalary", {
+      params: {
+        value: templateKey,
+        DayStart: formatDateIso(startDate),
+        DayEnd: formatDateIso(endDate),
+        Type: typeValue,
+        IsQuater: isQuarter ? "true" : "false",
+        TranId: tranId
+      },
+      headers: xhrHeaders(),
+      timeout: config.timeoutMs
+    });
+    const previewText = await previewResponse.text();
+    if (!previewResponse.ok()) {
+      throw new Error(summarizeError("Xem phieu luong", previewText, previewResponse.status()));
+    }
+
+    const relativeFilePath = String(previewText || "").trim().replace(/^"|"$/g, "");
+    if (!relativeFilePath || !/\.pdf(?:$|\?)/i.test(relativeFilePath)) {
+      throw new Error(`Xem phieu luong that bai: response khong phai duong dan PDF. ${stripHtml(previewText).slice(0, 300)}`);
+    }
+
+    const fileResponse = await api.get(`/${relativeFilePath.replace(/^\/+/, "")}`, {
+      timeout: config.timeoutMs
+    });
+    if (!fileResponse.ok()) {
+      const fileText = await fileResponse.text();
+      throw new Error(summarizeError("Tai file bang luong", fileText, fileResponse.status()));
+    }
+
+    const pdfBuffer = await fileResponse.body();
+    const artifactsDir = await ensureArtifactsDir();
+    const filename = `salary-${username}-${year}-${pad(monthIndex + 1)}.pdf`;
+    const filePath = path.join(artifactsDir, filename);
+    await writeFile(filePath, pdfBuffer);
+
+    return {
+      ok: true,
+      message: `Da lay file bang luong thang ${monthLabel}.`,
+      monthLabel,
+      tranId,
+      typeValue,
+      templateKey,
+      filePath,
+      fileName: filename,
+      relativeFilePath
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error.message || "Khong lay duoc bang luong."
     };
   } finally {
     await api.dispose();

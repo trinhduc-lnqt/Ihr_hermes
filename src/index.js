@@ -1,4 +1,5 @@
 import net from "node:net";
+import { Input } from "telegraf";
 
 import { Markup, Telegraf } from "telegraf";
 
@@ -9,9 +10,11 @@ import {
   parseAdjMinuteInput
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
-import { probeIhrAvailability, submitAttendance } from "./ihrClient.js";
+import { getSalarySlip, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
 import { deleteUserAccount, getUserAccount, saveUserAccount } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
+
+import { calculateSuggestedMinutes } from "./timeUtil.js";
 
 assertBotConfig();
 
@@ -19,38 +22,35 @@ const bot = new Telegraf(config.telegramToken);
 const pendingActions = new Map();
 const startedAt = new Date();
 const UI = {
-  checkIn: "\u2705 Check In",
-  checkOut: "\u{1F6AA} Check Out",
-  status: "\u{1F4CA} Trang thai",
-  account: "\u{1F464} Thong tin tai khoan",
-  deleteAccount: "\u{1F5D1}\uFE0F Xoa tai khoan",
-  vpnOn: "\u{1F512} Bat VPN",
-  vpnOff: "\u{1F513} Tat VPN",
-  vpnStatus: "\u{1F4E1} TT VPN",
-  vpnStateOn: "\u{1F512}",
-  vpnStateOff: "\u{1F513}",
-  vpnStateWarn: "\u26A0\uFE0F",
-  ok: "\u2705",
-  error: "\u274C",
-  sendLocation: "\u{1F4CD} Gui vi tri",
-  openMaps: "\u{1F5FA}\uFE0F Mo Google Maps"
+  attendance: "🕒 Chấm công",
+  checkInReason: "✍️ Check In",
+  checkOut: "🚪 Check Out",
+  status: "📊 Trạng thái",
+  salary: "💰 Bảng lương",
+  account: "👤 Tài khoản",
+  deleteAccount: "🗑️ Xoá TK",
+  backToMenu: "⬅️ Về menu",
+  vpnOn: "🟢 Bật VPN",
+  vpnOff: "🔴 Tắt VPN",
+  vpnStatus: "📡 VPN Status",
+  vpnStateOn: "🟢",
+  vpnStateOff: "🔴",
+  vpnStateWarn: "⚠️",
+  ok: "✅",
+  error: "❌",
+  sendLocation: "📍 Gửi vị trí",
+  openMaps: "🗺️ Mở Maps"
 };
 const telegramCommands = [
   { command: "start", description: "Mo menu bot" },
-  { command: "menu", description: "Hien menu thao tac" },
-  { command: "checkin", description: "Bat dau check in" },
-  { command: "checkout", description: "Bat dau check out" },
-  { command: "status", description: "Kiem tra bot va IHR/VPN" },
-  { command: "vpn", description: "Quan ly WireGuard VPN" },
-  { command: "vpnon", description: "Bat WireGuard VPN" },
-  { command: "vpnoff", description: "Tat WireGuard VPN" },
-  { command: "vpndiag", description: "Chan doan path config WireGuard" },
+  { command: "checkin", description: "Cham cong vao kem ly do" },
+  { command: "checkout", description: "Cham cong ra kem ly do" },
+  { command: "vpnon", description: "Bat VPN IHR" },
+  { command: "vpnoff", description: "Tat VPN IHR" },
+  { command: "salary", description: "Xem bang luong thang hien tai" },
+  { command: "account", description: "Xem tai khoan IHR" },
   { command: "setaccount", description: "Luu tai khoan IHR" },
-  { command: "account", description: "Xem tai khoan dang luu" },
-  { command: "deleteaccount", description: "Xoa tai khoan dang luu" },
-  { command: "cancel", description: "Huy thao tac dang doi" },
-  { command: "skiplocation", description: "Dung toa do mac dinh" },
-  { command: "id", description: "Xem Telegram ID cua ban" }
+  { command: "cancel", description: "Huy thao tac dang doi" }
 ];
 
 let instanceLockServer = null;
@@ -138,9 +138,9 @@ async function isAllowedUser(ctx) {
 
 function keyboard() {
   const rows = [
-    [Markup.button.callback(UI.checkIn, "action:checkin"), Markup.button.callback(UI.checkOut, "action:checkout")],
-    [Markup.button.callback(UI.status, "action:status"), Markup.button.callback(UI.account, "action:account")],
-    [Markup.button.callback(UI.deleteAccount, "action:delete")]
+    [Markup.button.callback(UI.attendance, "action:attendance")],
+    [Markup.button.callback(UI.status, "action:status"), Markup.button.callback(UI.salary, "action:salary")],
+    [Markup.button.callback(UI.account, "action:account")]
   ];
 
   if (config.wgTunnelName) {
@@ -152,6 +152,14 @@ function keyboard() {
   }
 
   return Markup.inlineKeyboard(rows);
+}
+
+function attendanceKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(UI.checkInReason, "action:checkin_reason")],
+    [Markup.button.callback(UI.checkOut, "action:checkout")],
+    [Markup.button.callback(UI.backToMenu, "action:menu")]
+  ]);
 }
 
 function locationKeyboard() {
@@ -200,6 +208,7 @@ function helpText(telegramId) {
     "/checkout                          - bat dau check out",
     "  Vi du ly do: Onsite PYC123456",
     "/status                            - kiem tra bot va ket noi IHR/VPN",
+    "/salary                            - xem bang luong thang hien tai",
     "/account                           - xem account dang luu",
     "/deleteaccount                     - xoa account da luu",
     "/cancel                            - huy thao tac dang doi",
@@ -303,15 +312,26 @@ async function notifyAllowedUsers(message) {
 }
 
 async function runIhrProbe() {
-  const probeResult = await probeIhrAvailability();
-  const normalized = {
-    ...probeResult,
-    message: summarizeProbeMessage(probeResult.message),
-    checkedAt: new Date()
-  };
-  lastIhrReachable = normalized.ok;
-  lastIhrProbe = normalized;
-  return normalized;
+  try {
+    const probeResult = await probeIhrAvailability();
+    const normalized = {
+      ...probeResult,
+      message: summarizeProbeMessage(probeResult.message),
+      checkedAt: new Date()
+    };
+    lastIhrReachable = normalized.ok;
+    lastIhrProbe = normalized;
+    return normalized;
+  } catch (error) {
+    const normalized = {
+      ok: false,
+      message: summarizeProbeMessage(error?.message || "Khong ket noi duoc toi IHR."),
+      checkedAt: new Date()
+    };
+    lastIhrReachable = normalized.ok;
+    lastIhrProbe = normalized;
+    return normalized;
+  }
 }
 
 async function checkIhrStatusChange() {
@@ -516,23 +536,27 @@ bot.command("vpnon", async (ctx) => {
     await ctx.reply("Chua cau hinh WireGuard. Them WG_TUNNEL_NAME vao file .env.", keyboard());
     return;
   }
-  await ctx.reply("Dang bat VPN. Ket noi mang the bi gian doan giay lat...");
+  await ctx.reply("Đang bật VPN. Quá trình kết nối có thể làm gián đoạn mạng vài giây...");
   const result = await connectVpn(config.wgTunnelName, config.wgConfPath);
   try {
     await ctx.reply(formatVpnActionReply(result), keyboard());
   } catch (error) {
-    console.log("Bo qua loi Telegram gui tin do mang reset khi bat VPN:", error.message);
+    console.log("Bỏ qua lỗi Telegram gửi tin do mạng reset khi bật VPN:", error.message);
   }
 });
 
 bot.command("vpnoff", async (ctx) => {
   if (!config.wgTunnelName) {
-    await ctx.reply("Chua cau hinh WireGuard. Them WG_TUNNEL_NAME vao file .env.", keyboard());
+    await ctx.reply("Chưa cấu hình WireGuard. Thêm WG_TUNNEL_NAME vào file .env.", keyboard());
     return;
   }
-  await ctx.reply("Dang tat VPN...");
+  await ctx.reply("Đang tắt VPN...");
   const result = await disconnectVpn(config.wgTunnelName);
-  await ctx.reply(formatVpnActionReply(result), keyboard());
+  try {
+    await ctx.reply(formatVpnActionReply(result), keyboard());
+  } catch (error) {
+    // Ignore
+  }
 });
 
 bot.command("vpndiag", async (ctx) => {
@@ -626,10 +650,18 @@ bot.command("setaccount", async (ctx) => {
   await ctx.reply(`Da luu tai khoan IHR cho ${ihrUsername}.`, keyboard());
 });
 
-async function queueAttendance(ctx, action, reason, geo = null, adjMinute = undefined) {
+async function getAccountOrReply(ctx) {
   const account = await getUserAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
   if (!account) {
     await ctx.reply("Chua co tai khoan IHR. Gui /setaccount roi nhap theo mau: username Abc123@");
+    return null;
+  }
+  return account;
+}
+
+async function queueAttendance(ctx, action, reason, geo = null, adjMinute = undefined) {
+  const account = await getAccountOrReply(ctx);
+  if (!account) {
     return;
   }
 
@@ -657,6 +689,60 @@ async function queueAttendance(ctx, action, reason, geo = null, adjMinute = unde
     lines.push(`Screenshot loi: ${result.screenshotPath}`);
   }
   await ctx.reply(lines.join("\n"), keyboard());
+}
+
+function parseSalaryMonthInput(text) {
+  const raw = String(text || "").trim();
+  const match = raw.match(/^(\d{1,2})\/(\d{4})$/);
+  if (!match) {
+    return null;
+  }
+  const month = Number(match[1]);
+  const year = Number(match[2]);
+  if (month < 1 || month > 12) {
+    return null;
+  }
+  return new Date(year, month - 1, 1);
+}
+
+function getPreviousMonthDate() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth() - 1, 1);
+}
+
+async function showSalary(ctx, month = getPreviousMonthDate()) {
+  const account = await getAccountOrReply(ctx);
+  if (!account) {
+    return;
+  }
+
+  await ctx.reply(`Dang lay bang luong cho ${account.ihrUsername}...`);
+  const result = await enqueue(() =>
+    getSalarySlip({
+      username: account.ihrUsername,
+      password: account.ihrPassword,
+      month
+    })
+  );
+
+  if (!result.ok) {
+    const shortError = String(result.message || "Loi khong xac dinh").replace(/\s+/g, " ").slice(0, 500);
+    await ctx.reply(`Lay bang luong that bai.\n${shortError}\n\nThu lai theo mau: /salary 03/2026`, keyboard());
+    return;
+  }
+
+  if (!result.filePath) {
+    await ctx.reply(`Lay bang luong that bai.\nKhong tim thay file bang luong tra ve.`, keyboard());
+    return;
+  }
+
+  await ctx.replyWithDocument(
+    Input.fromLocalFile(result.filePath, result.fileName || `salary-${result.monthLabel}.pdf`),
+    {
+      caption: `Bang luong ${result.monthLabel}`,
+      ...keyboard()
+    }
+  );
 }
 
 async function handleDirectCommand(ctx, action) {
@@ -695,14 +781,104 @@ bot.command("checkout", async (ctx) => {
   await handleDirectCommand(ctx, "checkout");
 });
 
-bot.action("action:checkin", async (ctx) => {
+bot.command("salary", async (ctx) => {
+  const text = ctx.message.text.trim();
+  const arg = text.split(/\s+/, 2)[1];
+  if (!arg) {
+    await showSalary(ctx, getPreviousMonthDate());
+    return;
+  }
+
+  const month = parseSalaryMonthInput(arg);
+  if (!month) {
+    await ctx.reply("Nhap theo mau: /salary 03/2026", keyboard());
+    return;
+  }
+
+  await showSalary(ctx, month);
+});
+
+bot.hears(UI.checkOut, async (ctx) => {
+  pendingActions.set(ctx.chat.id, { action: "checkout", stage: "reason" });
+  await ctx.reply(
+    [
+      "Sếp chọn Check Out.",
+      "Nhập lý do chấm công vào tin nhắn tiếp theo.",
+      "Mẫu nhập:",
+      "Đã xong việc / Đi gặp đối tác / Giải quyết việc nhà"
+    ].join("\n")
+  );
+});
+
+bot.hears(UI.status, async (ctx) => {
+  await ctx.reply(buildStatusText(), keyboard());
+});
+
+bot.hears(UI.salary, async (ctx) => {
+  await showSalary(ctx);
+});
+
+bot.hears(UI.account, async (ctx) => {
+  const account = await getUserAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
+  await ctx.reply(account ? `Đang lưu tài khoản: ${account.ihrUsername}` : "Chưa lưu tài khoản IHR.");
+});
+
+bot.hears(UI.vpnStatus, async (ctx) => {
+  if (!config.wgTunnelName) {
+    await ctx.reply("Chưa cấu hình WireGuard (WG_TUNNEL_NAME).");
+    return;
+  }
+  const status = await getVpnStatus(config.wgTunnelName);
+  await ctx.reply(formatVpnStatusReply(status), keyboard());
+});
+
+bot.hears(UI.vpnOn, async (ctx) => {
+  if (!config.wgTunnelName) {
+    await ctx.reply("Chưa cấu hình WireGuard (WG_TUNNEL_NAME).");
+    return;
+  }
+  await ctx.reply("Đang bật VPN. Quá trình kết nối có thể làm gián đoạn mạng vài giây, vui lòng chờ...");
+  const result = await connectVpn(config.wgTunnelName, config.wgConfPath);
+  try {
+    await ctx.reply(formatVpnActionReply(result), keyboard());
+  } catch (error) {
+    console.log("Bỏ qua lỗi Telegram gửi tin do mạng reset khi bật VPN:", error.message);
+  }
+});
+
+bot.hears(UI.vpnOff, async (ctx) => {
+  if (!config.wgTunnelName) {
+    await ctx.reply("Chưa cấu hình WireGuard (WG_TUNNEL_NAME).");
+    return;
+  }
+  await ctx.reply("Đang tắt VPN...");
+  const result = await disconnectVpn(config.wgTunnelName);
+  try {
+    await ctx.reply(formatVpnActionReply(result), keyboard());
+  } catch (error) {
+    console.log("Lỗi phản hồi tắt VPN:", error.message);
+  }
+});
+
+bot.action("action:attendance", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply("Tab chấm công đây Sếp:", attendanceKeyboard());
+});
+
+bot.action("action:menu", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply("Chon thao tac:", keyboard());
+});
+
+bot.action("action:checkin_reason", async (ctx) => {
   pendingActions.set(ctx.chat.id, { action: "checkin", stage: "reason" });
   await ctx.answerCbQuery();
   await ctx.reply(
     [
-      "Nhap ly do check in vao tin nhan tiep theo.",
-      "Mau nhap:",
-      "Lam viec tai nha"
+      "Sếp chọn Check In có lý do.",
+      "Nhập lý do chấm công vào tin nhắn tiếp theo.",
+      "Mẫu nhập:",
+      "Đến văn phòng / Tắc đường / Khách hàng gọi gấp"
     ].join("\n")
   );
 });
@@ -712,11 +888,17 @@ bot.action("action:checkout", async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply(
     [
-      "Nhap ly do check out vao tin nhan tiep theo.",
-      "Mau nhap:",
-      "Da roi khoi diem khach hang"
+      "Sếp chọn Check Out.",
+      "Nhập lý do chấm công vào tin nhắn tiếp theo.",
+      "Mẫu nhập:",
+      "Đã xong việc / Đi gặp đối tác / Giải quyết việc nhà"
     ].join("\n")
   );
+});
+
+bot.action("action:salary", async (ctx) => {
+  await ctx.answerCbQuery();
+  await showSalary(ctx);
 });
 
 bot.action("action:account", async (ctx) => {
@@ -746,23 +928,38 @@ bot.action("action:vpnon", async (ctx) => {
     await ctx.reply("Chua cau hinh WireGuard (WG_TUNNEL_NAME).");
     return;
   }
-  await ctx.reply("Dang bat VPN. Ket noi mang the bi gian doan giay lat...");
+  await ctx.reply("Đang bật VPN. Quá trình kết nối có thể làm gián đoạn mạng vài giây, vui lòng chờ...");
+  
+  // Gửi VPN request
   const result = await connectVpn(config.wgTunnelName, config.wgConfPath);
+  
+  // Phản hồi có thể bị fail nếu mạng vừa chuyển, cứ retry hoặc bỏ qua an toàn
   try {
     await ctx.reply(formatVpnActionReply(result), keyboard());
   } catch (error) {
-    console.log("Bo qua loi Telegram gui tin do mang reset khi bat VPN:", error.message);
+    console.log("Bỏ qua lỗi Telegram gửi tin do mạng reset khi bật VPN:", error.message);
   }
 });
 
 bot.action("action:vpnoff", async (ctx) => {
-  await ctx.answerCbQuery("Dang tat VPN...");
+  try {
+    await ctx.answerCbQuery("Đang tắt VPN...");
+  } catch (error) {
+    // Ignore timeout
+  }
+  
   if (!config.wgTunnelName) {
-    await ctx.reply("Chua cau hinh WireGuard (WG_TUNNEL_NAME).");
+    await ctx.reply("Chưa cấu hình WireGuard (WG_TUNNEL_NAME).");
     return;
   }
+  
   const result = await disconnectVpn(config.wgTunnelName);
-  await ctx.reply(formatVpnActionReply(result), keyboard());
+  
+  try {
+    await ctx.reply(formatVpnActionReply(result), keyboard());
+  } catch (error) {
+    console.log("Lỗi phản hồi tắt VPN:", error.message);
+  }
 });
 
 bot.action("action:delete", async (ctx) => {
@@ -815,17 +1012,24 @@ bot.on("text", async (ctx, next) => {
   if (pending.stage === "reason") {
     const reason = ctx.message.text.trim();
     if (!reason) {
-      await ctx.reply("Ly do dang rong. Thu lai bang /checkin hoac /checkout.");
+      await ctx.reply("Lý do đang rỗng. Thử lại bằng Check In hoặc Check Out.");
       return;
     }
 
     pendingActions.set(ctx.chat.id, buildAttendanceStateAfterReason(pending.action, reason));
+    
+    // Gợi ý phút bù giờ
+    const suggested = calculateSuggestedMinutes(pending.action);
+    
     await ctx.reply(
       [
-        "Da nhan ly do.",
-        "Nhap so phut bu gio (so nguyen >= 0).",
-        "Vi du: 0, 15, 30"
-      ].join("\n")
+        `Đã nhận lý do: *${reason}*`,
+        `Bot đề xuất bù: *${suggested}* phút (theo giờ hiện tại).`,
+        "",
+        "Nhập số phút bù giờ (số nguyên >= 0) để xác nhận.",
+        `Ví dụ: ${suggested}`
+      ].join("\n"),
+      { parse_mode: "Markdown" }
     );
     return;
   }
