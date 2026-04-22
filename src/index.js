@@ -1,5 +1,6 @@
 import net from "node:net";
-import { rm, unlink } from "node:fs/promises";
+import path from "node:path";
+import { readdir, rm, stat, unlink } from "node:fs/promises";
 import { Input } from "telegraf";
 
 import { Markup, Telegraf } from "telegraf";
@@ -54,7 +55,8 @@ const telegramCommands = [
   { command: "salary", description: "Xem bang luong thang hien tai" },
   { command: "account", description: "Xem tai khoan IHR" },
   { command: "setaccount", description: "Luu tai khoan IHR" },
-  { command: "cancel", description: "Huy thao tac dang doi" }
+  { command: "cancel", description: "Huy thao tac dang doi" },
+  { command: "cleanup", description: "Don file tam bang luong" }
 ];
 
 let instanceLockServer = null;
@@ -446,13 +448,47 @@ async function cleanupSalaryFiles(result) {
   const imageDirs = [
     ...new Set(
       (Array.isArray(result?.previewImages) ? result.previewImages : [])
-        .map((filePath) => filePath.split("/").slice(0, -1).join("/"))
+        .map((filePath) => path.dirname(filePath))
         .filter(Boolean)
     )
   ];
   for (const dirPath of imageDirs) {
     await rm(dirPath, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+async function cleanupSalaryArtifacts() {
+  const artifactsDir = path.resolve("artifacts");
+  const targets = [];
+
+  try {
+    const names = await readdir(artifactsDir);
+    for (const name of names) {
+      if (name === "tmp-salary" || /^salary-.*\.pdf$/i.test(name) || /^salary-images-/i.test(name)) {
+        targets.push(path.join(artifactsDir, name));
+      }
+    }
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { ok: true, removed: [] };
+    }
+    throw error;
+  }
+
+  const removed = [];
+  for (const targetPath of targets) {
+    const targetStat = await stat(targetPath).catch(() => null);
+    if (!targetStat) {
+      continue;
+    }
+    await rm(targetPath, { recursive: true, force: true });
+    removed.push({
+      path: targetPath,
+      type: targetStat.isDirectory() ? "dir" : "file"
+    });
+  }
+
+  return { ok: true, removed };
 }
 
 async function sendSalaryResultToChat(chatId, result, prefixText = "") {
@@ -809,6 +845,20 @@ bot.command("deleteaccount", async (ctx) => {
 bot.command("cancel", async (ctx) => {
   pendingActions.delete(ctx.chat.id);
   await ctx.reply("Da huy thao tac dang doi.", Markup.removeKeyboard());
+});
+
+bot.command("cleanup", async (ctx) => {
+  const result = await cleanupSalaryArtifacts();
+  if (!result.removed.length) {
+    await ctx.reply("Khong co file tam bang luong nao can don.", keyboard());
+    return;
+  }
+
+  const lines = [`Da don ${result.removed.length} muc tam bang luong:`];
+  for (const item of result.removed.slice(0, 20)) {
+    lines.push(`- [${item.type}] ${path.basename(item.path)}`);
+  }
+  await ctx.reply(lines.join("\n"), keyboard());
 });
 
 bot.command("skiplocation", async (ctx) => {
