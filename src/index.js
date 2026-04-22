@@ -10,7 +10,7 @@ import {
   parseAdjMinuteInput
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
-import { getSalarySlip, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
+import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
 import { deleteUserAccount, getUserAccount, saveUserAccount } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
 
@@ -718,7 +718,7 @@ async function showSalary(ctx, month = getPreviousMonthDate()) {
 
   await ctx.reply(`Dang lay bang luong cho ${account.ihrUsername}...`);
   const result = await enqueue(() =>
-    getSalarySlip({
+    getSalarySlipWithPreviewImages({
       username: account.ihrUsername,
       password: account.ihrPassword,
       month
@@ -731,6 +731,15 @@ async function showSalary(ctx, month = getPreviousMonthDate()) {
     return;
   }
 
+  if (Array.isArray(result.previewImages) && result.previewImages.length) {
+    const media = result.previewImages.slice(0, 10).map((filePath, index) => ({
+      type: "photo",
+      media: Input.fromLocalFile(filePath),
+      caption: index === 0 ? `Bang luong ${result.monthLabel}` : undefined
+    }));
+    await ctx.replyWithMediaGroup(media);
+  }
+
   if (!result.filePath) {
     await ctx.reply(`Lay bang luong that bai.\nKhong tim thay file bang luong tra ve.`, keyboard());
     return;
@@ -739,7 +748,7 @@ async function showSalary(ctx, month = getPreviousMonthDate()) {
   await ctx.replyWithDocument(
     Input.fromLocalFile(result.filePath, result.fileName || `salary-${result.monthLabel}.pdf`),
     {
-      caption: `Bang luong ${result.monthLabel}`,
+      caption: `File PDF bang luong ${result.monthLabel}`,
       ...keyboard()
     }
   );

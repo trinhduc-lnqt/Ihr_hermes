@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { chromium, request as playwrightRequest } from "playwright";
@@ -87,8 +87,8 @@ function createBrowserContextOptions(geo) {
   return options;
 }
 
-async function ensureArtifactsDir() {
-  const artifactsDir = path.resolve("artifacts");
+async function ensureArtifactsDir(subdir = "") {
+  const artifactsDir = path.resolve("artifacts", subdir);
   await mkdir(artifactsDir, { recursive: true });
   return artifactsDir;
 }
@@ -742,3 +742,93 @@ export async function getSalarySlip({ username, password, month = new Date(), is
     await api.dispose();
   }
 }
+
+export async function renderSalarySlipPreviewImages({ username, password, relativeFilePath, monthLabel }) {
+  if (!relativeFilePath) {
+    return {
+      ok: false,
+      message: "Khong co duong dan preview bang luong."
+    };
+  }
+
+  const api = await playwrightRequest.newContext({
+    baseURL: config.baseUrl,
+    ignoreHTTPSErrors: true,
+    extraHTTPHeaders: {
+      "accept-language": config.locale
+    }
+  });
+
+  let browser;
+  try {
+    await loginHttp(api, { username, password });
+    const storageState = await api.storageState();
+
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      ignoreHTTPSErrors: true,
+      viewport: { width: 1440, height: 2400 },
+      storageState
+    });
+    const page = await context.newPage();
+
+    const previewUrl = `${config.baseUrl}/PDF/preview?id=/${encodeURIComponent(relativeFilePath)}`;
+    await page.goto(previewUrl, { waitUntil: "networkidle", timeout: 60000 }).catch(async () => {
+      await page.goto(`${config.baseUrl}/${relativeFilePath.replace(/^\/+/, "")}`, { waitUntil: "load", timeout: 60000 });
+    });
+    await page.waitForTimeout(2500);
+
+    const bodyText = await page.locator("body").innerText().catch(() => "");
+    if (!String(bodyText || "").trim()) {
+      throw new Error("Trang preview bang luong khong render duoc noi dung.");
+    }
+
+    const safeMonth = String(monthLabel || "salary").replace(/[^0-9A-Za-z_-]+/g, "-");
+    const outputDir = await ensureArtifactsDir(`salary-images-${safeMonth}`);
+    const imagePath = path.join(outputDir, `salary-${safeMonth}-page-1.png`);
+    await page.screenshot({ path: imagePath, fullPage: true });
+
+    const files = (await readdir(outputDir))
+      .filter((name) => /\.png$/i.test(name))
+      .sort()
+      .map((name) => path.join(outputDir, name));
+
+    await context.close();
+
+    return {
+      ok: true,
+      imagePaths: files,
+      message: `Da render ${files.length} anh bang luong.`
+    };
+  } catch (error) {
+      return {
+        ok: false,
+        message: error.message || "Khong render duoc anh bang luong."
+      };
+  } finally {
+    await browser?.close().catch(() => {});
+    await api.dispose();
+  }
+}
+
+export async function getSalarySlipWithPreviewImages({ username, password, month = new Date(), isQuarter = false }) {
+  const salary = await getSalarySlip({ username, password, month, isQuarter });
+  if (!salary.ok) {
+    return salary;
+  }
+
+  const preview = await renderSalarySlipPreviewImages({
+    username,
+    password,
+    relativeFilePath: salary.relativeFilePath,
+    monthLabel: salary.monthLabel
+  });
+
+  return {
+    ...salary,
+    previewImages: preview.ok ? preview.imagePaths : [],
+    previewImageMessage: preview.message,
+    previewImageOk: preview.ok
+  };
+}
+
