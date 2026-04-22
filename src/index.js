@@ -11,7 +11,7 @@ import {
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
-import { deleteUserAccount, getAllUserAccounts, getUserAccount, markSalaryNotified, saveUserAccount } from "./store.js";
+import { deleteUserAccount, getAllUserAccounts, getUserAccount, saveUserAccount, updateSalaryMonitorState } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
 
 import { calculateSuggestedMinutes } from "./timeUtil.js";
@@ -467,8 +467,17 @@ async function checkSalaryNotifications() {
       if (!account?.chatId || !account?.ihrUsername || !account?.ihrPassword) {
         continue;
       }
-      if (account.salaryLastNotifiedMonth === targetMonthLabel) {
-        continue;
+
+      const previousState = account.salaryMonitorState || {};
+      if (previousState.monthLabel && previousState.monthLabel !== targetMonthLabel) {
+        await updateSalaryMonitorState(account.chatId, {
+          monthLabel: targetMonthLabel,
+          hasSalary: false,
+          lastFingerprint: "",
+          lastAnnouncedFingerprint: "",
+          lastSeenAt: null,
+          lastMissingAt: new Date().toISOString()
+        });
       }
 
       const result = await enqueue(() =>
@@ -480,15 +489,48 @@ async function checkSalaryNotifications() {
       );
 
       if (!result.ok) {
+        if (previousState.hasSalary || previousState.monthLabel !== targetMonthLabel) {
+          await updateSalaryMonitorState(account.chatId, {
+            monthLabel: targetMonthLabel,
+            hasSalary: false,
+            lastFingerprint: "",
+            lastSeenAt: null,
+            lastMissingAt: new Date().toISOString()
+          });
+        }
+        continue;
+      }
+
+      const fingerprint = buildSalaryFingerprint(result);
+      const becameAvailable = !previousState.hasSalary || previousState.monthLabel !== targetMonthLabel;
+      const contentChanged = previousState.lastAnnouncedFingerprint !== fingerprint;
+
+      await updateSalaryMonitorState(account.chatId, {
+        monthLabel: targetMonthLabel,
+        hasSalary: true,
+        lastFingerprint: fingerprint,
+        lastSeenAt: new Date().toISOString()
+      });
+
+      if (!becameAvailable && !contentChanged) {
         continue;
       }
 
       await sendSalaryResultToChat(
         account.chatId,
         result,
-        `Co bang luong moi roi Sếp. `
+        becameAvailable
+          ? `Co bang luong moi roi Sếp. `
+          : `Bang luong ${targetMonthLabel} vua duoc cap nhat lai roi Sếp. `
       );
-      await markSalaryNotified(account.chatId, targetMonthLabel);
+
+      await updateSalaryMonitorState(account.chatId, {
+        monthLabel: targetMonthLabel,
+        hasSalary: true,
+        lastFingerprint: fingerprint,
+        lastAnnouncedFingerprint: fingerprint,
+        lastAnnouncedAt: new Date().toISOString()
+      });
     }
   } catch (error) {
     console.error("Salary notify error:", error);
@@ -848,7 +890,16 @@ function formatMonthLabel(date) {
 
 function shouldCheckSalaryNotification(now = new Date()) {
   const day = now.getDate();
-  return day >= 1 && day <= config.salaryNotifyCloseDay;
+  return day >= 2 && day <= config.salaryNotifyCloseDay;
+}
+
+function buildSalaryFingerprint(result) {
+  return [
+    result?.relativeFilePath || "",
+    result?.fileName || "",
+    result?.monthLabel || "",
+    Array.isArray(result?.previewImages) ? result.previewImages.join("|") : ""
+  ].join("::");
 }
 
 async function showSalary(ctx, month = getPreviousMonthDate()) {

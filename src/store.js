@@ -68,14 +68,17 @@ export async function deleteUserAccount(chatId) {
   return true;
 }
 
-export async function markSalaryNotified(chatId, monthLabel) {
+export async function updateSalaryMonitorState(chatId, monitorState = {}) {
   const data = await loadRawData();
   const key = String(chatId);
   if (!data.users[key]) {
     return false;
   }
-  data.users[key].salaryLastNotifiedMonth = String(monthLabel || "");
-  data.users[key].salaryLastNotifiedAt = new Date().toISOString();
+  data.users[key].salaryMonitorState = {
+    ...(data.users[key].salaryMonitorState || {}),
+    ...monitorState,
+    updatedAt: new Date().toISOString()
+  };
   await saveRawData(data);
   return true;
 }
