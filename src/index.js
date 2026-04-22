@@ -27,6 +27,9 @@ const UI = {
   checkOut: "🚪 Check Out",
   status: "📊 Trạng thái",
   salary: "💰 Bảng lương",
+  salaryCurrent: "📄 Tháng hiện tại",
+  salaryPrevious: "🗂️ Tháng trước",
+  salaryRecent: "🕘 Các tháng gần đây",
   account: "👤 Tài khoản",
   deleteAccount: "🗑️ Xoá TK",
   backToMenu: "⬅️ Về menu",
@@ -160,6 +163,27 @@ function attendanceKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback(UI.checkInReason, "action:checkin_reason")],
     [Markup.button.callback(UI.checkOut, "action:checkout")],
+    [Markup.button.callback(UI.backToMenu, "action:menu")]
+  ]);
+}
+
+function getMonthDateFromOffset(offset = 0, baseDate = new Date()) {
+  return new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
+}
+
+function salaryKeyboard(baseDate = new Date()) {
+  const current = getMonthDateFromOffset(0, baseDate);
+  const previous = getMonthDateFromOffset(-1, baseDate);
+  const recentRows = [-2, -3, -4, -5].map((offset) => {
+    const date = getMonthDateFromOffset(offset, baseDate);
+    return Markup.button.callback(formatMonthLabel(date), `action:salary_month:${formatMonthLabel(date)}`);
+  });
+
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(`${UI.salaryCurrent} (${formatMonthLabel(current)})`, `action:salary_month:${formatMonthLabel(current)}`)],
+    [Markup.button.callback(`${UI.salaryPrevious} (${formatMonthLabel(previous)})`, `action:salary_month:${formatMonthLabel(previous)}`)],
+    [recentRows[0], recentRows[1]],
+    [recentRows[2], recentRows[3]],
     [Markup.button.callback(UI.backToMenu, "action:menu")]
   ]);
 }
@@ -896,7 +920,7 @@ bot.hears(UI.status, async (ctx) => {
 });
 
 bot.hears(UI.salary, async (ctx) => {
-  await showSalary(ctx);
+  await ctx.reply("Chon thang bang luong can xem nhe Sếp:", salaryKeyboard());
 });
 
 bot.hears(UI.account, async (ctx) => {
@@ -979,7 +1003,18 @@ bot.action("action:checkout", async (ctx) => {
 
 bot.action("action:salary", async (ctx) => {
   await ctx.answerCbQuery();
-  await showSalary(ctx);
+  await ctx.reply("Chon thang bang luong can xem nhe Sếp:", salaryKeyboard());
+});
+
+bot.action(/^action:salary_month:(\d{2}\/\d{4})$/, async (ctx) => {
+  const value = ctx.match?.[1] || "";
+  const month = parseSalaryMonthInput(value);
+  await ctx.answerCbQuery(month ? `Dang lay bang luong ${value}` : "Thang khong hop le");
+  if (!month) {
+    await ctx.reply("Thang bang luong khong hop le.", salaryKeyboard());
+    return;
+  }
+  await showSalary(ctx, month);
 });
 
 bot.action("action:account", async (ctx) => {
