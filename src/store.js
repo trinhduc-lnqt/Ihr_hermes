@@ -67,3 +67,23 @@ export async function deleteUserAccount(chatId) {
   await saveRawData(data);
   return true;
 }
+
+export async function markSalaryNotified(chatId, monthLabel) {
+  const data = await loadRawData();
+  const key = String(chatId);
+  if (!data.users[key]) {
+    return false;
+  }
+  data.users[key].salaryLastNotifiedMonth = String(monthLabel || "");
+  data.users[key].salaryLastNotifiedAt = new Date().toISOString();
+  await saveRawData(data);
+  return true;
+}
+
+export async function getAllUserAccounts({ secret }) {
+  const data = await loadRawData();
+  return Object.values(data.users || {}).map((record) => ({
+    ...record,
+    ihrPassword: decryptText(secret, record.ihrPassword)
+  }));
+}

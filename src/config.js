@@ -63,6 +63,8 @@ export const config = {
   transport: normalizeTransport(process.env.IHR_TRANSPORT),
   startupNotify: toBoolean(process.env.STARTUP_NOTIFY, true),
   ihrStatusCheckIntervalMinutes: toInteger(process.env.IHR_STATUS_CHECK_INTERVAL_MINUTES, 5),
+  salaryCheckIntervalMinutes: toInteger(process.env.SALARY_CHECK_INTERVAL_MINUTES, 30),
+  salaryNotifyCloseDay: toInteger(process.env.SALARY_NOTIFY_CLOSE_DAY, 10),
   heartbeatUrl: (process.env.HEARTBEAT_URL || "").trim(),
   heartbeatIntervalMinutes: toInteger(process.env.HEARTBEAT_INTERVAL_MINUTES, 5),
   lockPort: toInteger(process.env.BOT_LOCK_PORT, 47831),

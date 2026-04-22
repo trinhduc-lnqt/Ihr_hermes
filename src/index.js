@@ -11,7 +11,7 @@ import {
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
-import { deleteUserAccount, getUserAccount, saveUserAccount } from "./store.js";
+import { deleteUserAccount, getAllUserAccounts, getUserAccount, markSalaryNotified, saveUserAccount } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
 
 import { calculateSuggestedMinutes } from "./timeUtil.js";
@@ -56,10 +56,12 @@ const telegramCommands = [
 let instanceLockServer = null;
 let ihrStatusTimer = null;
 let heartbeatTimer = null;
+let salaryNotifyTimer = null;
 let lastIhrReachable = null;
 let lastIhrProbe = null;
 let isIhrProbeRunning = false;
 let isHeartbeatRunning = false;
+let isSalaryNotifyRunning = false;
 
 let queue = Promise.resolve();
 function enqueue(task) {
@@ -208,7 +210,7 @@ function helpText(telegramId) {
     "/checkout                          - bat dau check out",
     "  Vi du ly do: Onsite PYC123456",
     "/status                            - kiem tra bot va ket noi IHR/VPN",
-    "/salary                            - xem bang luong thang hien tai",
+    "/salary                            - xem bang luong thang truoc",
     "/account                           - xem account dang luu",
     "/deleteaccount                     - xoa account da luu",
     "/cancel                            - huy thao tac dang doi",
@@ -379,6 +381,72 @@ async function sendHeartbeat() {
   }
 }
 
+async function sendSalaryResultToChat(chatId, result, prefixText = "") {
+  if (Array.isArray(result.previewImages) && result.previewImages.length) {
+    const media = result.previewImages.slice(0, 10).map((filePath, index) => ({
+      type: "photo",
+      media: Input.fromLocalFile(filePath),
+      caption: index === 0 ? `${prefixText}Bang luong ${result.monthLabel}`.trim() : undefined
+    }));
+    await bot.telegram.sendMediaGroup(chatId, media);
+  }
+
+  if (result.filePath) {
+    await bot.telegram.sendDocument(
+      chatId,
+      Input.fromLocalFile(result.filePath, result.fileName || `salary-${result.monthLabel}.pdf`),
+      {
+        caption: `${prefixText}File PDF bang luong ${result.monthLabel}`.trim()
+      }
+    );
+  }
+}
+
+async function checkSalaryNotifications() {
+  if (isSalaryNotifyRunning || !shouldCheckSalaryNotification()) {
+    return;
+  }
+
+  isSalaryNotifyRunning = true;
+  try {
+    const accounts = await getAllUserAccounts({ secret: config.botSecretKey });
+    const targetMonth = getPreviousMonthDate();
+    const targetMonthLabel = formatMonthLabel(targetMonth);
+
+    for (const account of accounts) {
+      if (!account?.chatId || !account?.ihrUsername || !account?.ihrPassword) {
+        continue;
+      }
+      if (account.salaryLastNotifiedMonth === targetMonthLabel) {
+        continue;
+      }
+
+      const result = await enqueue(() =>
+        getSalarySlipWithPreviewImages({
+          username: account.ihrUsername,
+          password: account.ihrPassword,
+          month: targetMonth
+        })
+      );
+
+      if (!result.ok) {
+        continue;
+      }
+
+      await sendSalaryResultToChat(
+        account.chatId,
+        result,
+        `Co bang luong moi roi Sếp. `
+      );
+      await markSalaryNotified(account.chatId, targetMonthLabel);
+    }
+  } catch (error) {
+    console.error("Salary notify error:", error);
+  } finally {
+    isSalaryNotifyRunning = false;
+  }
+}
+
 function startRuntimeMonitors() {
   if (config.ihrStatusCheckIntervalMinutes > 0) {
     ihrStatusTimer = setInterval(() => {
@@ -397,6 +465,15 @@ function startRuntimeMonitors() {
     }, config.heartbeatIntervalMinutes * 60 * 1000);
     heartbeatTimer.unref?.();
   }
+
+  if (config.salaryCheckIntervalMinutes > 0) {
+    salaryNotifyTimer = setInterval(() => {
+      checkSalaryNotifications().catch((error) => {
+        console.error("Salary notify interval error:", error);
+      });
+    }, config.salaryCheckIntervalMinutes * 60 * 1000);
+    salaryNotifyTimer.unref?.();
+  }
 }
 
 async function initializeRuntimeState() {
@@ -408,6 +485,7 @@ async function initializeRuntimeState() {
   }
 
   await sendHeartbeat();
+  await checkSalaryNotifications();
   startRuntimeMonitors();
 }
 
@@ -433,6 +511,10 @@ function stopRuntimeMonitors() {
   if (heartbeatTimer) {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
+  }
+  if (salaryNotifyTimer) {
+    clearInterval(salaryNotifyTimer);
+    salaryNotifyTimer = null;
   }
 }
 
@@ -705,9 +787,18 @@ function parseSalaryMonthInput(text) {
   return new Date(year, month - 1, 1);
 }
 
-function getPreviousMonthDate() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth() - 1, 1);
+function getPreviousMonthDate(baseDate = new Date()) {
+  return new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1);
+}
+
+function formatMonthLabel(date) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${month}/${date.getFullYear()}`;
+}
+
+function shouldCheckSalaryNotification(now = new Date()) {
+  const day = now.getDate();
+  return day >= 1 && day <= config.salaryNotifyCloseDay;
 }
 
 async function showSalary(ctx, month = getPreviousMonthDate()) {
@@ -731,27 +822,8 @@ async function showSalary(ctx, month = getPreviousMonthDate()) {
     return;
   }
 
-  if (Array.isArray(result.previewImages) && result.previewImages.length) {
-    const media = result.previewImages.slice(0, 10).map((filePath, index) => ({
-      type: "photo",
-      media: Input.fromLocalFile(filePath),
-      caption: index === 0 ? `Bang luong ${result.monthLabel}` : undefined
-    }));
-    await ctx.replyWithMediaGroup(media);
-  }
-
-  if (!result.filePath) {
-    await ctx.reply(`Lay bang luong that bai.\nKhong tim thay file bang luong tra ve.`, keyboard());
-    return;
-  }
-
-  await ctx.replyWithDocument(
-    Input.fromLocalFile(result.filePath, result.fileName || `salary-${result.monthLabel}.pdf`),
-    {
-      caption: `File PDF bang luong ${result.monthLabel}`,
-      ...keyboard()
-    }
-  );
+  await sendSalaryResultToChat(ctx.chat.id, result);
+  await ctx.reply(`Xong bang luong ${result.monthLabel}.`, keyboard());
 }
 
 async function handleDirectCommand(ctx, action) {
