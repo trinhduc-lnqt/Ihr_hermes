@@ -33,6 +33,7 @@ const UI = {
   salaryPrevious: "🗂️ Tháng trước",
   salaryOther: "📚 Tháng khác",
   account: "👤 Tài khoản",
+  cleanup: "🧹 Dọn dẹp",
   deleteAccount: "🗑️ Xoá TK",
   backToMenu: "⬅️ Về menu",
   vpnOn: "🟢 Bật VPN",
@@ -148,7 +149,7 @@ function keyboard() {
   const rows = [
     [Markup.button.callback(UI.attendance, "action:attendance")],
     [Markup.button.callback(UI.status, "action:status"), Markup.button.callback(UI.salary, "action:salary")],
-    [Markup.button.callback(UI.account, "action:account")]
+    [Markup.button.callback(UI.account, "action:account"), Markup.button.callback(UI.cleanup, "action:cleanup")]
   ];
 
   if (config.wgTunnelName) {
@@ -1083,6 +1084,20 @@ bot.hears(UI.account, async (ctx) => {
   await ctx.reply(account ? `Đang lưu tài khoản: ${account.ihrUsername}` : "Chưa lưu tài khoản IHR.");
 });
 
+bot.hears(UI.cleanup, async (ctx) => {
+  const result = await cleanupSalaryArtifacts();
+  if (!result.removed.length) {
+    await ctx.reply("Khong co file tam bang luong nao can don.", keyboard());
+    return;
+  }
+
+  const lines = [`Da don ${result.removed.length} muc tam bang luong:`];
+  for (const item of result.removed.slice(0, 20)) {
+    lines.push(`- [${item.type}] ${path.basename(item.path)}`);
+  }
+  await ctx.reply(lines.join("\n"), keyboard());
+});
+
 bot.hears(UI.vpnStatus, async (ctx) => {
   if (!config.wgTunnelName) {
     await ctx.reply("Chưa cấu hình WireGuard (WG_TUNNEL_NAME).");
@@ -1181,6 +1196,21 @@ bot.action("action:account", async (ctx) => {
   await ctx.answerCbQuery();
   const account = await getUserAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
   await ctx.reply(account ? `Dang luu tai khoan: ${account.ihrUsername}` : "Chua luu tai khoan IHR.");
+});
+
+bot.action("action:cleanup", async (ctx) => {
+  await ctx.answerCbQuery("Dang don dep...");
+  const result = await cleanupSalaryArtifacts();
+  if (!result.removed.length) {
+    await ctx.reply("Khong co file tam bang luong nao can don.", keyboard());
+    return;
+  }
+
+  const lines = [`Da don ${result.removed.length} muc tam bang luong:`];
+  for (const item of result.removed.slice(0, 20)) {
+    lines.push(`- [${item.type}] ${path.basename(item.path)}`);
+  }
+  await ctx.reply(lines.join("\n"), keyboard());
 });
 
 bot.action("action:status", async (ctx) => {
