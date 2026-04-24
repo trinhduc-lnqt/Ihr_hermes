@@ -494,8 +494,17 @@ async function cleanupSalaryArtifacts() {
 
 async function sendSalaryResultToChat(chatId, result, prefixText = "") {
   try {
-    if (Array.isArray(result.previewImages) && result.previewImages.length) {
-      const media = result.previewImages.slice(0, 10).map((filePath, index) => ({
+    const previewImages = Array.isArray(result.previewImages) ? result.previewImages.filter(Boolean) : [];
+    if (previewImages.length === 1) {
+      await bot.telegram.sendPhoto(
+        chatId,
+        Input.fromLocalFile(previewImages[0]),
+        {
+          caption: `${prefixText}Bang luong ${result.monthLabel}`.trim()
+        }
+      );
+    } else if (previewImages.length > 1) {
+      const media = previewImages.slice(0, 10).map((filePath, index) => ({
         type: "photo",
         media: Input.fromLocalFile(filePath),
         caption: index === 0 ? `${prefixText}Bang luong ${result.monthLabel}`.trim() : undefined
@@ -512,6 +521,9 @@ async function sendSalaryResultToChat(chatId, result, prefixText = "") {
         }
       );
     }
+  } catch (error) {
+    console.error("Send salary result failed:", error);
+    throw error;
   } finally {
     await cleanupSalaryFiles(result);
   }
