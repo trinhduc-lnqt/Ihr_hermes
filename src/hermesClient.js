@@ -802,6 +802,14 @@ export function formatWorkScheduleDetail(entry, result = {}) {
   return lines.join("\n");
 }
 
+export function formatWorkScheduleSummaryLine(entry) {
+  const main = entry?.type || "Lịch làm việc";
+  const extra = [entry?.shift, entry?.ticket, entry?.status]
+    .filter(Boolean)
+    .join(" — ");
+  return extra ? `${main} — ${extra}` : main;
+}
+
 export function formatWorkScheduleResult(result) {
   const checkedAt = new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "short",
@@ -818,8 +826,8 @@ export function formatWorkScheduleResult(result) {
   }).format(target || new Date());
 
   const lines = [
-    `Lịch làm việc ${targetLabel}`,
-    `Thời điểm kiểm tra: ${checkedAt}`,
+    `📅 Lịch ngày ${targetLabel}`,
+    `Kiểm tra lúc: ${checkedAt}`,
     ""
   ];
 
@@ -828,16 +836,15 @@ export function formatWorkScheduleResult(result) {
     return lines.join("\n");
   }
 
-  lines.push("Có lịch:");
+  lines.push(`Có ${result.entries.length} lịch:`);
   for (const [index, entry] of result.entries.slice(0, 20).entries()) {
-    const label = [entry.type, entry.shift, entry.ticket, entry.product, entry.status]
-      .filter(Boolean)
-      .join(" — ");
-    lines.push(`${index + 1}. ${label || entry.text}`);
+    lines.push(`${index + 1}. ${formatWorkScheduleSummaryLine(entry)}`);
   }
   if (result.entries.length > 20) {
-    lines.push(`... và ${result.entries.length - 20} mục nữa.`);
+    lines.push(`... và ${result.entries.length - 20} lịch nữa.`);
   }
+  lines.push("");
+  lines.push("Bấm vào từng lịch bên dưới để xem chi tiết công việc.");
   return lines.join("\n");
 }
 

@@ -12,7 +12,7 @@ import {
   parseAdjMinuteInput
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
-import { cancelHermesOtpSession, formatWorkScheduleDetail, formatWorkScheduleResult, getRelativeWorkScheduleDate, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
+import { cancelHermesOtpSession, formatWorkScheduleDetail, formatWorkScheduleResult, formatWorkScheduleSummaryLine, getRelativeWorkScheduleDate, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
 import { deleteHermesAccount, deleteUserAccount, getAllUserAccounts, getHermesAccount, getUserAccount, saveHermesAccount, saveUserAccount, updateSalaryMonitorState } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
@@ -198,8 +198,8 @@ function workScheduleKeyboard(result, cacheKey) {
   const entries = result?.entries || [];
   for (let index = 0; index < Math.min(entries.length, 10); index += 1) {
     const entry = entries[index];
-    const labelParts = [entry.ticket, entry.type, entry.status].filter(Boolean);
-    rows.push([Markup.button.callback(`🔎 ${index + 1}. ${labelParts.join(" - ") || "Chi tiết lịch"}`, `action:hermes_work_detail:${cacheKey}:${index}`)]);
+    const label = formatWorkScheduleSummaryLine(entry).slice(0, 48);
+    rows.push([Markup.button.callback(`🔎 ${index + 1}. ${label}`, `action:hermes_work_detail:${cacheKey}:${index}`)]);
   }
   rows.push([
     Markup.button.callback("⬅️ Ngày trước", `action:hermes_work_date:${result.targetDate}:-1`),
