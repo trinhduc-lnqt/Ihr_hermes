@@ -103,8 +103,83 @@ async function clickFirstVisible(page, selectors) {
     if (!visible) {
       continue;
     }
+    const enabled = await locator.isEnabled().catch(() => false);
+    if (!enabled) {
+      continue;
+    }
     await locator.click();
     return selector;
+  }
+  await page.keyboard.press("Enter");
+  return "Enter";
+}
+
+async function getVisibleOtpInputs(page) {
+  const inputs = [];
+  const seen = new Set();
+  for (const selector of OTP_SELECTORS) {
+    const locators = await page.locator(selector).all().catch(() => []);
+    for (const locator of locators) {
+      const handle = await locator.elementHandle().catch(() => null);
+      if (!handle) {
+        continue;
+      }
+      const key = await handle.evaluate((el) => {
+        if (!el.dataset.miuOtpKey) {
+          el.dataset.miuOtpKey = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+        }
+        return el.dataset.miuOtpKey;
+      }).catch(() => null);
+      if (!key || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const visible = await locator.isVisible().catch(() => false);
+      const enabled = await locator.isEnabled().catch(() => false);
+      if (visible && enabled) {
+        inputs.push(locator);
+      }
+    }
+  }
+  return inputs;
+}
+
+async function fillOtp(page, otp) {
+  const normalizedOtp = String(otp || "").trim().replace(/\s+/g, "");
+  const otpInputs = await getVisibleOtpInputs(page);
+  if (otpInputs.length === 0) {
+    throw new Error("Khong tim thay o nhap OTP tren trang Hermes.");
+  }
+
+  if (otpInputs.length > 1 && normalizedOtp.length >= otpInputs.length) {
+    for (let index = 0; index < otpInputs.length; index += 1) {
+      await otpInputs[index].click();
+      await otpInputs[index].fill("");
+      await otpInputs[index].pressSequentially(normalizedOtp[index] || "", { delay: 50 });
+    }
+  } else {
+    const input = otpInputs[0];
+    await input.click();
+    await input.fill("");
+    await input.pressSequentially(normalizedOtp, { delay: 50 });
+  }
+
+  await page.waitForTimeout(500);
+  return otpInputs.length;
+}
+
+async function clickOtpSubmit(page) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    for (const selector of OTP_SUBMIT_SELECTORS) {
+      const locator = page.locator(selector).first();
+      const visible = await locator.isVisible().catch(() => false);
+      const enabled = await locator.isEnabled().catch(() => false);
+      if (visible && enabled) {
+        await locator.click();
+        return selector;
+      }
+    }
+    await page.waitForTimeout(300);
   }
   await page.keyboard.press("Enter");
   return "Enter";
@@ -221,8 +296,8 @@ export async function submitHermesOtp(otp) {
   const session = activeHermesSession;
   const { page } = session;
   try {
-    await fillFirstVisible(page, OTP_SELECTORS, otp, "OTP");
-    await clickFirstVisible(page, OTP_SUBMIT_SELECTORS);
+    await fillOtp(page, otp);
+    await clickOtpSubmit(page);
     await page.waitForLoadState("networkidle", { timeout: config.timeoutMs }).catch(() => {});
     await page.waitForTimeout(1500);
 
