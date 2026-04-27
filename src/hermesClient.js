@@ -416,25 +416,40 @@ function toHermesLocalDate(date) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
-function fromHermesLocalDate(value) {
+function parseHermesLocalDateParts(value) {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) {
+  if (!match) return null;
+  return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
+}
+
+function fromHermesLocalDate(value) {
+  const parts = parseHermesLocalDateParts(value);
+  if (!parts) {
     return null;
   }
-  return new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00+07:00`);
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0));
+}
+
+function hermesLocalDayOfWeek(date) {
+  const parts = parseHermesLocalDateParts(toHermesLocalDate(date));
+  const noonUtc = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0));
+  return noonUtc.getUTCDay() || 7;
+}
+
+function addHermesLocalDays(date, days) {
+  const parts = parseHermesLocalDateParts(toHermesLocalDate(date));
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days, 12, 0, 0));
 }
 
 function addDays(date, days) {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
+  return addHermesLocalDays(date, days);
 }
 
 function getWeekRange(date) {
   const localDate = fromHermesLocalDate(toHermesLocalDate(date));
-  const day = localDate.getUTCDay() || 7;
-  const start = addDays(localDate, 1 - day);
-  const end = addDays(start, 6);
+  const day = hermesLocalDayOfWeek(localDate);
+  const start = addHermesLocalDays(localDate, 1 - day);
+  const end = addHermesLocalDays(start, 6);
   return { start, end };
 }
 
@@ -600,22 +615,103 @@ function extractScheduleEntriesFromBody(bodyText, targetDate) {
     }
   }
 
-  return lineItems.map((text, index) => ({
-    id: `${targetDateText}-body-${index}`,
-    ticket: text.match(/#\d{5,}/)?.[0] || "",
-    type: detectScheduleType(text),
-    status: text.match(/Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch|Nghỉ/i)?.[0] || "",
-    product: text.replace(/^#\d+\s*-\s*/, "").replace(/\s+—\s+.*$/, ""),
-    customer: "",
-    owner: "duc.dao",
-    shift: "",
-    time: "",
-    note: "",
-    links: collectLinks(text),
-    link: collectLinks(text)[0] || "",
-    text,
-    date: targetDateText
-  }));
+  return lineItems.map((text, index) => {
+    const links = collectLinks(text);
+    return {
+      id: `${targetDateText}-body-${index}`,
+      ticket: text.match(/#\d{5,}/)?.[0] || "",
+      type: detectScheduleType(text),
+      status: text.match(/Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch|Nghỉ/i)?.[0] || "",
+      product: text.replace(/^#\d+\s*-\s*/, "").replace(/\s+—\s+.*$/, ""),
+      customer: "",
+      owner: "duc.dao",
+      shift: "",
+      time: "",
+      note: "",
+      links,
+      link: links[0] || "",
+      text,
+      date: targetDateText
+    };
+  });
+}
+
+async function extractScheduleEntriesFromDom(page, targetDate) {
+  const targetDateText = toHermesLocalDate(targetDate);
+  const rawItems = await page.evaluate((target) => {
+    const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const headers = [...document.querySelectorAll(".header-wrapper .date-in-week")].map((element) => {
+      const rect = element.getBoundingClientRect();
+      const text = clean(element.innerText);
+      const date = text.match(/\d{4}-\d{2}-\d{2}/)?.[0] || "";
+      return { date, left: rect.left, right: rect.right, width: rect.width };
+    }).filter((item) => item.date);
+    const targetHeader = headers.find((item) => item.date === target);
+    if (!targetHeader) {
+      return [];
+    }
+
+    const rows = [...document.querySelectorAll(".employee-wrapper")];
+    const row = rows.find((element) => /(^|\s)duc\.dao(\s|$)/i.test(clean(element.querySelector(".emp-info")?.innerText || element.innerText)));
+    if (!row) {
+      return [];
+    }
+
+    const dayWidth = targetHeader.width || (targetHeader.right - targetHeader.left) || 1;
+    const items = [...row.querySelectorAll(".grid-stack-item")].map((element) => {
+      const rect = element.getBoundingClientRect();
+      const overlap = Math.max(0, Math.min(rect.right, targetHeader.right) - Math.max(rect.left, targetHeader.left));
+      return {
+        text: clean(element.innerText),
+        className: String(element.className || ""),
+        html: element.innerHTML,
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        overlap
+      };
+    });
+
+    return items
+      .filter((item) => item.text && item.overlap >= Math.min(20, dayWidth * 0.2))
+      .map((item) => ({ text: item.text, className: item.className, html: item.html }));
+  }, targetDateText).catch(() => []);
+
+  const typeFromClass = (className, text) => {
+    if (/type-busy/i.test(className)) return "Lịch trực";
+    if (/type-onsite/i.test(className)) return "Onsite";
+    if (/type-deploy-extra/i.test(className)) return "Triển khai thêm";
+    if (/type-deploy/i.test(className)) return "Triển khai";
+    if (/type-maintain|type-maintenance/i.test(className)) return "Bảo trì";
+    if (/type-leave|type-off/i.test(className)) return "Nghỉ";
+    return detectScheduleType(text);
+  };
+
+  return rawItems.map((item, index) => {
+    const text = item.text;
+    const links = collectLinks(`${text}\n${item.html || ""}`);
+    const status = text.match(/Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch|Nghỉ/i)?.[0] || "";
+    const product = text
+      .replace(/^#\d+\s*-\s*/, "")
+      .replace(/\s+(Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch)$/i, "")
+      .trim();
+    return {
+      id: `${targetDateText}-dom-${index}`,
+      ticket: text.match(/#\d{5,}/)?.[0] || "",
+      type: typeFromClass(item.className, text),
+      status,
+      product,
+      customer: "",
+      owner: "duc.dao",
+      shift: "",
+      time: "",
+      note: "",
+      links,
+      link: links[0] || "",
+      text,
+      date: targetDateText
+    };
+  });
 }
 
 function getFieldValue(item, names) {
@@ -824,8 +920,14 @@ async function readScheduleFromLoggedInPage(page, apiResponses, targetDate) {
 
   let entries = normalizeScheduleEntriesFromApi(apiResponses, targetDate);
   if (!entries.length) {
+    entries = await extractScheduleEntriesFromDom(page, targetDate);
+  }
+  if (!entries.length) {
     const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
-    entries = extractScheduleEntriesFromBody(bodyText, targetDate);
+    const hasCalendarGrid = /T[2-7]|CN/.test(bodyText) && /\d{4}-\d{2}-\d{2}/.test(bodyText) && /duc\.dao/i.test(bodyText);
+    if (!hasCalendarGrid) {
+      entries = extractScheduleEntriesFromBody(bodyText, targetDate);
+    }
   }
 
   return {

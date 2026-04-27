@@ -1,0 +1,15 @@
+import dotenv from 'dotenv'; dotenv.config({ override: true });
+import { chromium } from 'playwright';
+import { config } from '../src/config.js';
+const browser=await chromium.launch({headless:true});
+const page=await browser.newPage({ignoreHTTPSErrors:true, viewport:{width:1365,height:900}});
+page.setDefaultTimeout(15000);
+await page.goto(config.hermesLoginUrl,{waitUntil:'domcontentloaded'});
+await page.waitForTimeout(3000);
+await page.screenshot({path:'artifacts/hermes-probe-page.png', fullPage:true});
+console.log('url',page.url());
+console.log('title',await page.title());
+console.log('body', (await page.locator('body').innerText().catch(e=>String(e))).slice(0,2000));
+const inputs=await page.locator('input').evaluateAll(els=>els.map((e,i)=>({i,type:e.type,name:e.name,id:e.id,placeholder:e.placeholder,formcontrolname:e.getAttribute('formcontrolname'),visible:!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length),disabled:e.disabled, html:e.outerHTML.slice(0,300)}))).catch(e=>[{error:String(e)}]);
+console.log(JSON.stringify(inputs,null,2));
+await browser.close();
