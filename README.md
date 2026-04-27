@@ -1,6 +1,6 @@
 # IHR Telegram Bot (Linux VPS)
 
-Bot Telegram chấm công IHR chạy trên VPS Linux, hỗ trợ Check-In, Check-Out, lưu tài khoản IHR theo từng Telegram user, và bật/tắt WireGuard khi cần.
+Bot Telegram chấm công IHR chạy trên VPS Linux, hỗ trợ Check-In, Check-Out, thông báo lịch/bảng lương, lưu tài khoản IHR/Hermes theo từng Telegram user, và bật/tắt WireGuard khi cần.
 
 ## Cần có
 - Ubuntu 22.04+ hoặc Debian tương đương
@@ -25,6 +25,10 @@ mkdir -p data vpn-configs
 - `IHR_GEO_LAT`, `IHR_GEO_LNG`: tọa độ mặc định
 - `WG_TUNNEL_NAME`: tên tunnel, ví dụ `ihr-office`
 - `WG_CONF_PATH`: đường dẫn file `.conf`, ví dụ `/home/ubuntu/ihr-telegram-bot/vpn-configs/ihr-office.conf`
+- `IHR_STATUS_CHECK_INTERVAL_MINUTES`: chu kỳ kiểm tra và thông báo trạng thái IHR/VPN
+- `SALARY_CHECK_INTERVAL_MINUTES`: chu kỳ kiểm tra thông báo bảng lương mới
+- `HERMES_BASE_URL`: domain Hermes nếu muốn bot test đăng nhập Hermes sau khi lưu tài khoản
+- `HERMES_LOGIN_PATH`: đường dẫn trang đăng nhập Hermes, mặc định `/System/Login`
 
 ## Chạy thử
 ```bash
@@ -53,6 +57,7 @@ youruser ALL=(ALL) NOPASSWD: /usr/bin/wg-quick, /usr/bin/wg
 ## Cách dùng
 - `/start` mở menu
 - `/setaccount` lưu tài khoản IHR
+- `/sethermes` lưu tài khoản Hermes và test đăng nhập nếu đã cấu hình `HERMES_BASE_URL`
 - `/checkin` check in
 - `/checkout` check out
 - `/vpn`, `/vpnon`, `/vpnoff` quản lý VPN

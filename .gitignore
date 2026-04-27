@@ -3,3 +3,5 @@ artifacts/
 .env
 data/
 logs/
+bot.log
+vpn-configs/

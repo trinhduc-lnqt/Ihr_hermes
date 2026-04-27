@@ -12,8 +12,9 @@ import {
   parseAdjMinuteInput
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
+import { validateHermesLogin } from "./hermesClient.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
-import { deleteUserAccount, getAllUserAccounts, getUserAccount, saveUserAccount, updateSalaryMonitorState } from "./store.js";
+import { deleteUserAccount, getAllUserAccounts, getUserAccount, saveHermesAccount, saveUserAccount, updateSalaryMonitorState } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
 
 import { calculateSuggestedMinutes } from "./timeUtil.js";
@@ -33,6 +34,7 @@ const UI = {
   salaryPrevious: "🗂️ Tháng trước",
   salaryOther: "📚 Tháng khác",
   account: "👤 Tài khoản",
+  hermesAccount: "🔐 Hermes",
   cleanup: "🧹 Dọn dẹp",
   deleteAccount: "🗑️ Xoá TK",
   backToMenu: "⬅️ Về menu",
@@ -56,6 +58,7 @@ const telegramCommands = [
   { command: "salary", description: "Xem bang luong thang hien tai" },
   { command: "account", description: "Xem tai khoan IHR" },
   { command: "setaccount", description: "Luu tai khoan IHR" },
+  { command: "sethermes", description: "Luu tai khoan Hermes" },
   { command: "cancel", description: "Huy thao tac dang doi" },
   { command: "cleanup", description: "Don file tam bang luong" }
 ];
@@ -149,7 +152,8 @@ function keyboard() {
   const rows = [
     [Markup.button.callback(UI.attendance, "action:attendance")],
     [Markup.button.callback(UI.status, "action:status"), Markup.button.callback(UI.salary, "action:salary")],
-    [Markup.button.callback(UI.account, "action:account"), Markup.button.callback(UI.cleanup, "action:cleanup")]
+    [Markup.button.callback(UI.account, "action:account"), Markup.button.callback(UI.hermesAccount, "action:hermes_account")],
+    [Markup.button.callback(UI.cleanup, "action:cleanup")]
   ];
 
   if (config.wgTunnelName) {
@@ -266,6 +270,7 @@ function helpText(telegramId) {
     "/status                            - kiem tra bot va ket noi IHR/VPN",
     "/salary                            - xem bang luong thang truoc",
     "/account                           - xem account dang luu",
+    "/sethermes                         - luu tai khoan Hermes",
     "/deleteaccount                     - xoa account da luu",
     "/cancel                            - huy thao tac dang doi",
     "/skiplocation                      - dung toa do mac dinh trong .env"
@@ -915,6 +920,36 @@ bot.command("setaccount", async (ctx) => {
   await ctx.reply(`Da luu tai khoan IHR cho ${ihrUsername}.`, keyboard());
 });
 
+bot.command("sethermes", async (ctx) => {
+  const message = ctx.message.text.trim();
+  const parts = message.split(/\s+/);
+  if (parts.length < 3) {
+    pendingActions.set(ctx.chat.id, { stage: "hermes_credentials" });
+    await ctx.reply(
+      [
+        "Nhap user va password Hermes trong tin nhan tiep theo.",
+        "Mau nhap:",
+        "username Abc123@"
+      ].join("\n")
+    );
+    return;
+  }
+
+  const hermesUsername = parts[1];
+  const hermesPassword = parts.slice(2).join(" ");
+  await saveHermesAccount({
+    secret: config.botSecretKey,
+    chatId: ctx.chat.id,
+    telegramUser: ctx.from,
+    hermesUsername,
+    hermesPassword
+  });
+
+  await ctx.reply(`Da luu tai khoan Hermes cho ${hermesUsername}. Dang test dang nhap...`);
+  const result = await enqueue(() => validateHermesLogin({ username: hermesUsername, password: hermesPassword }));
+  await ctx.reply(result.ok ? result.message : `Luu roi nhung test Hermes loi: ${result.message}`, keyboard());
+});
+
 async function getAccountOrReply(ctx) {
   const account = await getUserAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
   if (!account) {
@@ -1093,7 +1128,22 @@ bot.hears(UI.salary, async (ctx) => {
 
 bot.hears(UI.account, async (ctx) => {
   const account = await getUserAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
-  await ctx.reply(account ? `Đang lưu tài khoản: ${account.ihrUsername}` : "Chưa lưu tài khoản IHR.");
+  await ctx.reply(account?.ihrUsername ? `Đang lưu tài khoản IHR: ${account.ihrUsername}` : "Chưa lưu tài khoản IHR.");
+});
+
+bot.hears(UI.hermesAccount, async (ctx) => {
+  const account = await getUserAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
+  if (account?.hermesUsername) {
+    await ctx.reply(`Đang lưu tài khoản Hermes: ${account.hermesUsername}\nMuốn đổi thì gửi /sethermes.`);
+    return;
+  }
+  pendingActions.set(ctx.chat.id, { stage: "hermes_credentials" });
+  await ctx.reply([
+    "Chưa lưu tài khoản Hermes.",
+    "Gửi user và password Hermes trong tin nhắn tiếp theo.",
+    "Mẫu nhập:",
+    "username Abc123@"
+  ].join("\n"));
 });
 
 bot.hears(UI.cleanup, async (ctx) => {
@@ -1207,7 +1257,23 @@ bot.action(/^action:salary_month:(\d{2}\/\d{4})$/, async (ctx) => {
 bot.action("action:account", async (ctx) => {
   await ctx.answerCbQuery();
   const account = await getUserAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
-  await ctx.reply(account ? `Dang luu tai khoan: ${account.ihrUsername}` : "Chua luu tai khoan IHR.");
+  await ctx.reply(account?.ihrUsername ? `Dang luu tai khoan IHR: ${account.ihrUsername}` : "Chua luu tai khoan IHR.");
+});
+
+bot.action("action:hermes_account", async (ctx) => {
+  await ctx.answerCbQuery();
+  const account = await getUserAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
+  if (account?.hermesUsername) {
+    await ctx.reply(`Dang luu tai khoan Hermes: ${account.hermesUsername}\nMuon doi thi gui /sethermes.`);
+    return;
+  }
+  pendingActions.set(ctx.chat.id, { stage: "hermes_credentials" });
+  await ctx.reply([
+    "Chua luu tai khoan Hermes.",
+    "Gui user va password Hermes trong tin nhan tiep theo.",
+    "Mau nhap:",
+    "username Abc123@"
+  ].join("\n"));
 });
 
 bot.action("action:cleanup", async (ctx) => {
@@ -1324,6 +1390,36 @@ bot.on("text", async (ctx, next) => {
 
     pendingActions.delete(ctx.chat.id);
     await ctx.reply(`Da luu tai khoan IHR cho ${ihrUsername}.`, keyboard());
+    return;
+  }
+
+  if (pending.stage === "hermes_credentials") {
+    const parts = ctx.message.text.trim().split(/\s+/);
+    if (parts.length < 2) {
+      await ctx.reply([
+        "Chua dung mau nhap.",
+        "Hay gui lai user va password Hermes tren cung 1 dong.",
+        "Vi du:",
+        "username Abc123@"
+      ].join("\n"));
+      return;
+    }
+
+    const hermesUsername = parts[0];
+    const hermesPassword = parts.slice(1).join(" ");
+
+    await saveHermesAccount({
+      secret: config.botSecretKey,
+      chatId: ctx.chat.id,
+      telegramUser: ctx.from,
+      hermesUsername,
+      hermesPassword
+    });
+
+    pendingActions.delete(ctx.chat.id);
+    await ctx.reply(`Da luu tai khoan Hermes cho ${hermesUsername}. Dang test dang nhap...`);
+    const result = await enqueue(() => validateHermesLogin({ username: hermesUsername, password: hermesPassword }));
+    await ctx.reply(result.ok ? result.message : `Luu roi nhung test Hermes loi: ${result.message}`, keyboard());
     return;
   }
 

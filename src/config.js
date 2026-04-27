@@ -32,6 +32,8 @@ function normalizeTransport(value) {
 const baseUrl = (process.env.IHR_BASE_URL || "https://ihr.ipos.vn").trim().replace(/\/+$/, "");
 const loginPath = normalizePath(process.env.IHR_LOGIN_PATH, "/System/Login");
 const checkInPath = normalizePath(process.env.IHR_CHECKIN_PATH, "/Hrm/CheckInOut_Online");
+const hermesBaseUrl = (process.env.HERMES_BASE_URL || "").trim().replace(/\/+$/, "");
+const hermesLoginPath = normalizePath(process.env.HERMES_LOGIN_PATH, "/System/Login");
 
 const allowedIds = (process.env.ALLOWED_TELEGRAM_IDS || "")
   .split(",")
@@ -73,6 +75,8 @@ export const config = {
   loginUrl: `${baseUrl}${loginPath}`,
   checkInUrl: `${baseUrl}${checkInPath}`,
   baseUrl,
+  hermesBaseUrl,
+  hermesLoginUrl: hermesBaseUrl ? `${hermesBaseUrl}${hermesLoginPath}` : "",
   geo: hasGeo
     ? {
         latitude: Number(lat),

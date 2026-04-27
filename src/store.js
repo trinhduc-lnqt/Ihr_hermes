@@ -31,15 +31,36 @@ async function saveRawData(data) {
 export async function saveUserAccount({ secret, chatId, telegramUser, ihrUsername, ihrPassword }) {
   const data = await loadRawData();
   const now = new Date().toISOString();
+  const existing = data.users[String(chatId)] || {};
   data.users[String(chatId)] = {
+    ...existing,
     chatId: String(chatId),
-    telegramId: telegramUser?.id ? String(telegramUser.id) : null,
-    telegramUsername: telegramUser?.username || null,
-    telegramName: [telegramUser?.first_name, telegramUser?.last_name].filter(Boolean).join(" ") || null,
+    telegramId: telegramUser?.id ? String(telegramUser.id) : existing.telegramId || null,
+    telegramUsername: telegramUser?.username || existing.telegramUsername || null,
+    telegramName: [telegramUser?.first_name, telegramUser?.last_name].filter(Boolean).join(" ") || existing.telegramName || null,
     ihrUsername,
     ihrPassword: encryptText(secret, ihrPassword),
     updatedAt: now,
-    createdAt: data.users[String(chatId)]?.createdAt || now
+    createdAt: existing.createdAt || now
+  };
+  await saveRawData(data);
+  return data.users[String(chatId)];
+}
+
+export async function saveHermesAccount({ secret, chatId, telegramUser, hermesUsername, hermesPassword }) {
+  const data = await loadRawData();
+  const now = new Date().toISOString();
+  const existing = data.users[String(chatId)] || {};
+  data.users[String(chatId)] = {
+    ...existing,
+    chatId: String(chatId),
+    telegramId: telegramUser?.id ? String(telegramUser.id) : existing.telegramId || null,
+    telegramUsername: telegramUser?.username || existing.telegramUsername || null,
+    telegramName: [telegramUser?.first_name, telegramUser?.last_name].filter(Boolean).join(" ") || existing.telegramName || null,
+    hermesUsername,
+    hermesPassword: encryptText(secret, hermesPassword),
+    hermesUpdatedAt: now,
+    createdAt: existing.createdAt || now
   };
   await saveRawData(data);
   return data.users[String(chatId)];
@@ -53,7 +74,8 @@ export async function getUserAccount({ secret, chatId }) {
   }
   return {
     ...record,
-    ihrPassword: decryptText(secret, record.ihrPassword)
+    ihrPassword: record.ihrPassword ? decryptText(secret, record.ihrPassword) : "",
+    hermesPassword: record.hermesPassword ? decryptText(secret, record.hermesPassword) : ""
   };
 }
 
@@ -87,6 +109,7 @@ export async function getAllUserAccounts({ secret }) {
   const data = await loadRawData();
   return Object.values(data.users || {}).map((record) => ({
     ...record,
-    ihrPassword: decryptText(secret, record.ihrPassword)
+    ihrPassword: record.ihrPassword ? decryptText(secret, record.ihrPassword) : "",
+    hermesPassword: record.hermesPassword ? decryptText(secret, record.hermesPassword) : ""
   }));
 }
