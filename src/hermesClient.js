@@ -742,22 +742,6 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
     return Array.from(new Set(lines)).join(" | ");
   };
 
-  const linkFromItem = (item, links) => {
-    if (links.length) return links[0];
-    const text = `${item.html || ""}\n${item.onclickTexts || ""}`;
-    const idMatch = text.match(/[a-f0-9]{24}/i);
-    if (idMatch) {
-      return `${getHermesBaseUrl()}/request-order/${idMatch[0]}`;
-    }
-    // Hermes calendar cards only expose the schedule/ticket numeric id in DOM. The actual
-    // request-order object id is not rendered until another route/API resolves it, so keep a
-    // deterministic deep link to the support schedule item instead of incorrectly saying no link.
-    const scheduleId = String(item.html || "").match(/<div[^>]+class=["'][^"']*grid-stack-item[^"']*["'][^>]+id=["'](\d{5,})["']/i)?.[1]
-      || String(item.html || "").match(/\bid=["'](\d{5,})["']/i)?.[1]
-      || String(item.text || "").match(/#(\d{5,})/)?.[1];
-    return scheduleId ? `${getHermesBaseUrl()}/support-working-schedule?ticket=${scheduleId}` : "";
-  };
-
   const typeFromClass = (className, text) => {
     if (/type-further-deploy/i.test(className)) return "Hỗ trợ tiếp";
     if (/type-busy/i.test(className)) return "Lịch trực";
@@ -774,11 +758,10 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
     const links = collectLinks(`${text}\n${item.title || ""}\n${item.html || ""}\n${(item.hrefs || []).join("\n")}`);
     const titleText = item.title || "";
     const type = typeFromClass(item.className, `${text}\n${titleText}`);
-    const hasTicket = /#\d{5,}/.test(text);
-    const link = hasTicket ? linkFromItem(item, links) : (links[0] || "");
-    const allLinks = link && !links.includes(link) ? [link, ...links] : links;
+    const link = links[0] || "";
+    const allLinks = links;
     const note = noteFromItem(item, titleText);
-    const richText = [text, note, link].filter(Boolean).join("\n");
+    const richText = [text, note].filter(Boolean).join("\n");
     const status = text.match(/Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch|Nghỉ/i)?.[0]
       || titleText.match(/Trạng thái triển khai:\s*([^|\n]+)/i)?.[1]?.trim()
       || "";
