@@ -658,11 +658,26 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
     }
 
     const dayWidth = targetHeader.width || (targetHeader.right - targetHeader.left) || 1;
+    const absolutize = (href) => {
+      if (!href) return "";
+      try {
+        return new URL(href, window.location.origin).toString();
+      } catch {
+        return href;
+      }
+    };
     const items = [...row.querySelectorAll(".grid-stack-item")].map((element) => {
       const rect = element.getBoundingClientRect();
+      const content = element.querySelector(".grid-stack-item-content") || element;
       const overlap = Math.max(0, Math.min(rect.right, targetHeader.right) - Math.max(rect.left, targetHeader.left));
+      const title = clean(content.getAttribute("title") || element.getAttribute("title") || "");
+      const hrefs = [...element.querySelectorAll("a[href]")].map((anchor) => absolutize(anchor.getAttribute("href"))).filter(Boolean);
+      const onclickTexts = [element.getAttribute("onclick"), content.getAttribute("onclick")].filter(Boolean).join(" ");
       return {
         text: clean(element.innerText),
+        title,
+        hrefs,
+        onclickTexts,
         className: String(element.className || ""),
         html: element.innerHTML,
         left: rect.left,
@@ -674,8 +689,43 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
 
     return items
       .filter((item) => item.text && item.overlap >= Math.min(20, dayWidth * 0.2))
-      .map((item) => ({ text: item.text, className: item.className, html: item.html }));
+      .map((item) => ({
+        text: item.text,
+        title: item.title,
+        hrefs: item.hrefs,
+        onclickTexts: item.onclickTexts,
+        className: item.className,
+        html: item.html
+      }));
   }, targetDateText).catch(() => []);
+
+  const parseTimeFromTitle = (title) => {
+    const match = String(title || "").match(/Từ\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+đến\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i);
+    return match ? `${match[1]} đến ${match[2]}` : "";
+  };
+
+  const noteFromTitle = (title) => String(title || "")
+    .split(/\s*(?:\n|\|)\s*/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^Từ\s+\d{4}-\d{2}-\d{2}/i.test(line))
+    .join(" | ");
+
+  const linkFromItem = (item, links) => {
+    if (links.length) return links[0];
+    const text = `${item.html || ""}\n${item.onclickTexts || ""}`;
+    const idMatch = text.match(/[a-f0-9]{24}/i);
+    if (idMatch) {
+      return `${getHermesBaseUrl()}/request-order/${idMatch[0]}`;
+    }
+    // Hermes calendar cards only expose the schedule/ticket numeric id in DOM. The actual
+    // request-order object id is not rendered until another route/API resolves it, so keep a
+    // deterministic deep link to the support schedule item instead of incorrectly saying no link.
+    const scheduleId = String(item.html || "").match(/<div[^>]+class=["'][^"']*grid-stack-item[^"']*["'][^>]+id=["'](\d{5,})["']/i)?.[1]
+      || String(item.html || "").match(/\bid=["'](\d{5,})["']/i)?.[1]
+      || String(item.text || "").match(/#(\d{5,})/)?.[1];
+    return scheduleId ? `${getHermesBaseUrl()}/support-working-schedule?ticket=${scheduleId}` : "";
+  };
 
   const typeFromClass = (className, text) => {
     if (/type-busy/i.test(className)) return "Lịch trực";
@@ -689,26 +739,33 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
 
   return rawItems.map((item, index) => {
     const text = item.text;
-    const links = collectLinks(`${text}\n${item.html || ""}`);
-    const status = text.match(/Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch|Nghỉ/i)?.[0] || "";
+    const links = collectLinks(`${text}\n${item.title || ""}\n${item.html || ""}\n${(item.hrefs || []).join("\n")}`);
+    const link = linkFromItem(item, links);
+    const allLinks = link && !links.includes(link) ? [link, ...links] : links;
+    const richText = [text, link].filter(Boolean).join("\n");
+    const titleText = item.title || "";
+    const status = text.match(/Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch|Nghỉ/i)?.[0]
+      || titleText.match(/Trạng thái triển khai:\s*([^|\n]+)/i)?.[1]?.trim()
+      || "";
     const product = text
       .replace(/^#\d+\s*-\s*/, "")
       .replace(/\s+(Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch)$/i, "")
       .trim();
+    const note = noteFromTitle(titleText);
     return {
       id: `${targetDateText}-dom-${index}`,
       ticket: text.match(/#\d{5,}/)?.[0] || "",
-      type: typeFromClass(item.className, text),
+      type: typeFromClass(item.className, `${text}\n${titleText}`),
       status,
       product,
-      customer: "",
+      customer: titleText.match(/(?:Khách hàng|Cửa hàng|Địa điểm triển khai):\s*([^|\n]+)/i)?.[1]?.trim() || "",
       owner: "duc.dao",
       shift: "",
-      time: "",
-      note: "",
-      links,
-      link: links[0] || "",
-      text,
+      time: parseTimeFromTitle(titleText),
+      note,
+      links: allLinks,
+      link,
+      text: richText,
       date: targetDateText
     };
   });
@@ -980,6 +1037,12 @@ export function formatWorkScheduleDetail(entry, result = {}) {
     timeZone: config.timezoneId
   }).format(target || new Date());
 
+  const links = Array.from(new Set([
+    ...(entry?.links || []),
+    entry?.link || "",
+    ...collectLinks(entry?.text || "")
+  ].filter(Boolean)));
+
   const lines = [
     "📋 Chi tiết lịch làm việc",
     `Ngày: ${targetLabel}`,
@@ -994,7 +1057,7 @@ export function formatWorkScheduleDetail(entry, result = {}) {
     `Người phụ trách: ${entry?.owner || "duc.dao"}`,
     `Thời gian: ${entry?.time || "Theo ô lịch Hermes"}`,
     `Ghi chú: ${entry?.note || "Không có"}`,
-    `Link lịch: ${entry?.links?.length ? entry.links.join("\n") : "Không có"}`,
+    `Link lịch: ${links.length ? links.join("\n") : "Không có"}`,
     "",
     "Tóm tắt:",
     entry?.text || "Không có dữ liệu chi tiết."
