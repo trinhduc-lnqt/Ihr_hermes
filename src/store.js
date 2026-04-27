@@ -4,94 +4,122 @@ import path from "node:path";
 import { decryptText, encryptText } from "./crypto.js";
 
 const dataDir = path.resolve("data");
-const usersFile = path.join(dataDir, "users.json");
+const ihrUsersFile = path.join(dataDir, "users.json");
+const hermesUsersFile = path.join(dataDir, "hermes-users.json");
 
 async function ensureDataDir() {
   await mkdir(dataDir, { recursive: true });
 }
 
-async function loadRawData() {
+async function loadRawData(filePath, defaultData = { users: {} }) {
   await ensureDataDir();
   try {
-    const content = await readFile(usersFile, "utf8");
+    const content = await readFile(filePath, "utf8");
     return JSON.parse(content);
   } catch (error) {
     if (error.code === "ENOENT") {
-      return { users: {} };
+      return defaultData;
     }
     throw error;
   }
 }
 
-async function saveRawData(data) {
+async function saveRawData(filePath, data) {
   await ensureDataDir();
-  await writeFile(usersFile, JSON.stringify(data, null, 2), "utf8");
+  await writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
+}
+
+function buildTelegramProfile({ chatId, telegramUser, existing = {} }) {
+  return {
+    chatId: String(chatId),
+    telegramId: telegramUser?.id ? String(telegramUser.id) : existing.telegramId || null,
+    telegramUsername: telegramUser?.username || existing.telegramUsername || null,
+    telegramName: [telegramUser?.first_name, telegramUser?.last_name].filter(Boolean).join(" ") || existing.telegramName || null
+  };
 }
 
 export async function saveUserAccount({ secret, chatId, telegramUser, ihrUsername, ihrPassword }) {
-  const data = await loadRawData();
+  const data = await loadRawData(ihrUsersFile);
   const now = new Date().toISOString();
   const existing = data.users[String(chatId)] || {};
   data.users[String(chatId)] = {
     ...existing,
-    chatId: String(chatId),
-    telegramId: telegramUser?.id ? String(telegramUser.id) : existing.telegramId || null,
-    telegramUsername: telegramUser?.username || existing.telegramUsername || null,
-    telegramName: [telegramUser?.first_name, telegramUser?.last_name].filter(Boolean).join(" ") || existing.telegramName || null,
+    ...buildTelegramProfile({ chatId, telegramUser, existing }),
     ihrUsername,
     ihrPassword: encryptText(secret, ihrPassword),
     updatedAt: now,
     createdAt: existing.createdAt || now
   };
-  await saveRawData(data);
+  await saveRawData(ihrUsersFile, data);
   return data.users[String(chatId)];
 }
 
 export async function saveHermesAccount({ secret, chatId, telegramUser, hermesUsername, hermesPassword }) {
-  const data = await loadRawData();
+  const data = await loadRawData(hermesUsersFile);
   const now = new Date().toISOString();
   const existing = data.users[String(chatId)] || {};
   data.users[String(chatId)] = {
     ...existing,
-    chatId: String(chatId),
-    telegramId: telegramUser?.id ? String(telegramUser.id) : existing.telegramId || null,
-    telegramUsername: telegramUser?.username || existing.telegramUsername || null,
-    telegramName: [telegramUser?.first_name, telegramUser?.last_name].filter(Boolean).join(" ") || existing.telegramName || null,
+    ...buildTelegramProfile({ chatId, telegramUser, existing }),
     hermesUsername,
     hermesPassword: encryptText(secret, hermesPassword),
-    hermesUpdatedAt: now,
+    updatedAt: now,
     createdAt: existing.createdAt || now
   };
-  await saveRawData(data);
+  await saveRawData(hermesUsersFile, data);
   return data.users[String(chatId)];
 }
 
 export async function getUserAccount({ secret, chatId }) {
-  const data = await loadRawData();
+  const data = await loadRawData(ihrUsersFile);
   const record = data.users[String(chatId)];
   if (!record) {
     return null;
   }
+  const { hermesUsername, hermesPassword, hermesUpdatedAt, ...ihrRecord } = record;
   return {
-    ...record,
-    ihrPassword: record.ihrPassword ? decryptText(secret, record.ihrPassword) : "",
+    ...ihrRecord,
+    ihrPassword: record.ihrPassword ? decryptText(secret, record.ihrPassword) : ""
+  };
+}
+
+export async function getHermesAccount({ secret, chatId }) {
+  const data = await loadRawData(hermesUsersFile);
+  const record = data.users[String(chatId)];
+  if (!record) {
+    return null;
+  }
+  const { ihrUsername, ihrPassword, salaryMonitorState, ...hermesRecord } = record;
+  return {
+    ...hermesRecord,
     hermesPassword: record.hermesPassword ? decryptText(secret, record.hermesPassword) : ""
   };
 }
 
 export async function deleteUserAccount(chatId) {
-  const data = await loadRawData();
+  const data = await loadRawData(ihrUsersFile);
   const key = String(chatId);
   if (!data.users[key]) {
     return false;
   }
   delete data.users[key];
-  await saveRawData(data);
+  await saveRawData(ihrUsersFile, data);
+  return true;
+}
+
+export async function deleteHermesAccount(chatId) {
+  const data = await loadRawData(hermesUsersFile);
+  const key = String(chatId);
+  if (!data.users[key]) {
+    return false;
+  }
+  delete data.users[key];
+  await saveRawData(hermesUsersFile, data);
   return true;
 }
 
 export async function updateSalaryMonitorState(chatId, monitorState = {}) {
-  const data = await loadRawData();
+  const data = await loadRawData(ihrUsersFile);
   const key = String(chatId);
   if (!data.users[key]) {
     return false;
@@ -101,15 +129,28 @@ export async function updateSalaryMonitorState(chatId, monitorState = {}) {
     ...monitorState,
     updatedAt: new Date().toISOString()
   };
-  await saveRawData(data);
+  await saveRawData(ihrUsersFile, data);
   return true;
 }
 
 export async function getAllUserAccounts({ secret }) {
-  const data = await loadRawData();
-  return Object.values(data.users || {}).map((record) => ({
-    ...record,
-    ihrPassword: record.ihrPassword ? decryptText(secret, record.ihrPassword) : "",
-    hermesPassword: record.hermesPassword ? decryptText(secret, record.hermesPassword) : ""
-  }));
+  const data = await loadRawData(ihrUsersFile);
+  return Object.values(data.users || {}).map((record) => {
+    const { hermesUsername, hermesPassword, hermesUpdatedAt, ...ihrRecord } = record;
+    return {
+      ...ihrRecord,
+      ihrPassword: record.ihrPassword ? decryptText(secret, record.ihrPassword) : ""
+    };
+  });
+}
+
+export async function getAllHermesAccounts({ secret }) {
+  const data = await loadRawData(hermesUsersFile);
+  return Object.values(data.users || {}).map((record) => {
+    const { ihrUsername, ihrPassword, salaryMonitorState, ...hermesRecord } = record;
+    return {
+      ...hermesRecord,
+      hermesPassword: record.hermesPassword ? decryptText(secret, record.hermesPassword) : ""
+    };
+  });
 }

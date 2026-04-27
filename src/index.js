@@ -14,7 +14,7 @@ import {
 import { assertBotConfig, config } from "./config.js";
 import { validateHermesLogin } from "./hermesClient.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
-import { deleteUserAccount, getAllUserAccounts, getUserAccount, saveHermesAccount, saveUserAccount, updateSalaryMonitorState } from "./store.js";
+import { deleteHermesAccount, deleteUserAccount, getAllUserAccounts, getHermesAccount, getUserAccount, saveHermesAccount, saveUserAccount, updateSalaryMonitorState } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
 
 import { calculateSuggestedMinutes } from "./timeUtil.js";
@@ -39,7 +39,8 @@ const UI = {
   hermesAccount: "🔐 Tài khoản Hermes",
   hermesWork: "📋 Công việc Hermes",
   cleanup: "🧹 Dọn dẹp",
-  deleteAccount: "🗑️ Xoá TK",
+  deleteAccount: "🗑️ Xoá TK IHR",
+  deleteHermesAccount: "🗑️ Xoá TK Hermes",
   backToMenu: "⬅️ Về menu",
   vpnOn: "🟢 Bật VPN",
   vpnOff: "🔴 Tắt VPN",
@@ -62,6 +63,7 @@ const telegramCommands = [
   { command: "account", description: "Xem tai khoan IHR" },
   { command: "setaccount", description: "Luu tai khoan IHR" },
   { command: "sethermes", description: "Luu tai khoan Hermes" },
+  { command: "deletehermes", description: "Xoa tai khoan Hermes" },
   { command: "cancel", description: "Huy thao tac dang doi" },
   { command: "cleanup", description: "Don file tam bang luong" }
 ];
@@ -162,7 +164,8 @@ function ihrKeyboard() {
   const rows = [
     [Markup.button.callback(UI.checkInReason, "action:checkin_reason"), Markup.button.callback(UI.checkOut, "action:checkout")],
     [Markup.button.callback(UI.status, "action:status"), Markup.button.callback(UI.salary, "action:salary")],
-    [Markup.button.callback(UI.account, "action:account"), Markup.button.callback(UI.cleanup, "action:cleanup")]
+    [Markup.button.callback(UI.account, "action:account"), Markup.button.callback(UI.deleteAccount, "action:delete")],
+    [Markup.button.callback(UI.cleanup, "action:cleanup")]
   ];
 
   if (config.wgTunnelName) {
@@ -181,6 +184,7 @@ function hermesKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback(UI.hermesWork, "action:hermes_work")],
     [Markup.button.callback(UI.hermesAccount, "action:hermes_account")],
+    [Markup.button.callback(UI.deleteHermesAccount, "action:delete_hermes")],
     [Markup.button.callback(UI.backToMenu, "action:menu")]
   ]);
 }
@@ -281,7 +285,8 @@ function helpText(telegramId) {
     "/salary                            - xem bang luong thang truoc",
     "/account                           - xem account dang luu",
     "/sethermes                         - luu tai khoan Hermes",
-    "/deleteaccount                     - xoa account da luu",
+    "/deleteaccount                     - xoa account IHR da luu",
+    "/deletehermes                      - xoa account Hermes da luu",
     "/cancel                            - huy thao tac dang doi",
     "/skiplocation                      - dung toa do mac dinh trong .env"
   ];
@@ -867,7 +872,13 @@ bot.command("account", async (ctx) => {
 bot.command("deleteaccount", async (ctx) => {
   const removed = await deleteUserAccount(ctx.chat.id);
   pendingActions.delete(ctx.chat.id);
-  await ctx.reply(removed ? "Da xoa tai khoan IHR da luu." : "Khong tim thay tai khoan de xoa.");
+  await ctx.reply(removed ? "Da xoa tai khoan IHR da luu." : "Khong tim thay tai khoan IHR de xoa.");
+});
+
+bot.command("deletehermes", async (ctx) => {
+  const removed = await deleteHermesAccount(ctx.chat.id);
+  pendingActions.delete(ctx.chat.id);
+  await ctx.reply(removed ? "Da xoa tai khoan Hermes da luu." : "Khong tim thay tai khoan Hermes de xoa.");
 });
 
 bot.command("cancel", async (ctx) => {
@@ -1142,7 +1153,7 @@ bot.hears(UI.account, async (ctx) => {
 });
 
 bot.hears(UI.hermesAccount, async (ctx) => {
-  const account = await getUserAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
+  const account = await getHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
   if (account?.hermesUsername) {
     await ctx.reply(`Đang lưu tài khoản Hermes: ${account.hermesUsername}\nMuốn đổi thì gửi /sethermes.`);
     return;
@@ -1291,7 +1302,7 @@ bot.action("action:account", async (ctx) => {
 
 bot.action("action:hermes_account", async (ctx) => {
   await ctx.answerCbQuery();
-  const account = await getUserAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
+  const account = await getHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
   if (account?.hermesUsername) {
     await ctx.reply(`Dang luu tai khoan Hermes: ${account.hermesUsername}\nMuon doi thi gui /sethermes.`);
     return;
@@ -1379,7 +1390,14 @@ bot.action("action:delete", async (ctx) => {
   await ctx.answerCbQuery();
   const removed = await deleteUserAccount(ctx.chat.id);
   pendingActions.delete(ctx.chat.id);
-  await ctx.reply(removed ? "Da xoa tai khoan IHR da luu." : "Khong co tai khoan nao de xoa.");
+  await ctx.reply(removed ? "Da xoa tai khoan IHR da luu." : "Khong co tai khoan IHR nao de xoa.");
+});
+
+bot.action("action:delete_hermes", async (ctx) => {
+  await ctx.answerCbQuery();
+  const removed = await deleteHermesAccount(ctx.chat.id);
+  pendingActions.delete(ctx.chat.id);
+  await ctx.reply(removed ? "Da xoa tai khoan Hermes da luu." : "Khong co tai khoan Hermes nao de xoa.");
 });
 
 bot.on("text", async (ctx, next) => {
