@@ -55,7 +55,9 @@ youruser ALL=(ALL) NOPASSWD: /usr/bin/wg-quick, /usr/bin/wg
 ```
 
 ## Cách dùng
-- `/start` mở menu
+- `/start` mở menu chính với 2 phần: `IHR - Chấm công` và `Hermes - Công việc`
+- Trong `IHR - Chấm công`: check in/out, trạng thái, bảng lương, tài khoản IHR, VPN
+- Trong `Hermes - Công việc`: tài khoản Hermes và các thao tác công việc Hermes
 - `/setaccount` lưu tài khoản IHR
 - `/sethermes` lưu tài khoản Hermes và test đăng nhập nếu đã cấu hình `HERMES_BASE_URL`
 - `/checkin` check in

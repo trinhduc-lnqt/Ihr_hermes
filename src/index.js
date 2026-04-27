@@ -25,6 +25,8 @@ const bot = new Telegraf(config.telegramToken);
 const pendingActions = new Map();
 const startedAt = new Date();
 const UI = {
+  ihrMenu: "🕒 IHR - Chấm công",
+  hermesMenu: "🧩 Hermes - Công việc",
   attendance: "🕒 Chấm công",
   checkInReason: "✍️ Check In",
   checkOut: "🚪 Check Out",
@@ -33,8 +35,9 @@ const UI = {
   salaryCurrent: "📄 Tháng này",
   salaryPrevious: "🗂️ Tháng trước",
   salaryOther: "📚 Tháng khác",
-  account: "👤 Tài khoản",
-  hermesAccount: "🔐 Hermes",
+  account: "👤 Tài khoản IHR",
+  hermesAccount: "🔐 Tài khoản Hermes",
+  hermesWork: "📋 Công việc Hermes",
   cleanup: "🧹 Dọn dẹp",
   deleteAccount: "🗑️ Xoá TK",
   backToMenu: "⬅️ Về menu",
@@ -149,11 +152,17 @@ async function isAllowedUser(ctx) {
 }
 
 function keyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(UI.ihrMenu, "action:ihr_menu")],
+    [Markup.button.callback(UI.hermesMenu, "action:hermes_menu")]
+  ]);
+}
+
+function ihrKeyboard() {
   const rows = [
-    [Markup.button.callback(UI.attendance, "action:attendance")],
+    [Markup.button.callback(UI.checkInReason, "action:checkin_reason"), Markup.button.callback(UI.checkOut, "action:checkout")],
     [Markup.button.callback(UI.status, "action:status"), Markup.button.callback(UI.salary, "action:salary")],
-    [Markup.button.callback(UI.account, "action:account"), Markup.button.callback(UI.hermesAccount, "action:hermes_account")],
-    [Markup.button.callback(UI.cleanup, "action:cleanup")]
+    [Markup.button.callback(UI.account, "action:account"), Markup.button.callback(UI.cleanup, "action:cleanup")]
   ];
 
   if (config.wgTunnelName) {
@@ -164,13 +173,14 @@ function keyboard() {
     ]);
   }
 
+  rows.push([Markup.button.callback(UI.backToMenu, "action:menu")]);
   return Markup.inlineKeyboard(rows);
 }
 
-function attendanceKeyboard() {
+function hermesKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback(UI.checkInReason, "action:checkin_reason")],
-    [Markup.button.callback(UI.checkOut, "action:checkout")],
+    [Markup.button.callback(UI.hermesWork, "action:hermes_work")],
+    [Markup.button.callback(UI.hermesAccount, "action:hermes_account")],
     [Markup.button.callback(UI.backToMenu, "action:menu")]
   ]);
 }
@@ -768,7 +778,7 @@ bot.command("id", async (ctx) => {
 });
 
 bot.command("menu", async (ctx) => {
-  await ctx.reply("Chon thao tac:", keyboard());
+  await ctx.reply("Chọn khu vực thao tác:", keyboard());
 });
 
 bot.command("status", async (ctx) => {
@@ -1199,12 +1209,31 @@ bot.hears(UI.vpnOff, async (ctx) => {
 
 bot.action("action:attendance", async (ctx) => {
   await ctx.answerCbQuery();
-  await ctx.reply("Tab chấm công đây Sếp:", attendanceKeyboard());
+  await replyOrEditMenu(ctx, "IHR - Chấm công:", ihrKeyboard());
+});
+
+bot.action("action:ihr_menu", async (ctx) => {
+  await ctx.answerCbQuery();
+  await replyOrEditMenu(ctx, "IHR - Chấm công:", ihrKeyboard());
+});
+
+bot.action("action:hermes_menu", async (ctx) => {
+  await ctx.answerCbQuery();
+  await replyOrEditMenu(ctx, "Hermes - Công việc:", hermesKeyboard());
+});
+
+bot.action("action:hermes_work", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply([
+    "Hermes - Công việc hiện đã có phần đăng nhập tài khoản.",
+    "Phần lấy danh sách/xử lý công việc Hermes cần endpoint hoặc màn hình cụ thể sau khi Sếp đăng nhập để em map tiếp.",
+    "Trước mắt Sếp bấm Tài khoản Hermes hoặc gửi /sethermes để lưu đăng nhập."
+  ].join("\n"), hermesKeyboard());
 });
 
 bot.action("action:menu", async (ctx) => {
   await ctx.answerCbQuery();
-  await replyOrEditMenu(ctx, "Chon thao tac:", keyboard());
+  await replyOrEditMenu(ctx, "Chọn khu vực thao tác:", keyboard());
 });
 
 bot.action("action:checkin_reason", async (ctx) => {
