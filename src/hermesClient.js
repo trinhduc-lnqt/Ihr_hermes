@@ -673,11 +673,15 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
       const title = clean(content.getAttribute("title") || element.getAttribute("title") || "");
       const hrefs = [...element.querySelectorAll("a[href]")].map((anchor) => absolutize(anchor.getAttribute("href"))).filter(Boolean);
       const onclickTexts = [element.getAttribute("onclick"), content.getAttribute("onclick")].filter(Boolean).join(" ");
+      const detailTexts = [...element.querySelectorAll("p")]
+        .map((node) => clean(node.innerText || node.textContent || ""))
+        .filter(Boolean);
       return {
         text: clean(element.innerText),
         title,
         hrefs,
         onclickTexts,
+        detailTexts,
         className: String(element.className || ""),
         html: element.innerHTML,
         left: rect.left,
@@ -694,6 +698,7 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
         title: item.title,
         hrefs: item.hrefs,
         onclickTexts: item.onclickTexts,
+        detailTexts: item.detailTexts,
         className: item.className,
         html: item.html
       }));
@@ -704,12 +709,38 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
     return match ? `${match[1]} đến ${match[2]}` : "";
   };
 
-  const noteFromTitle = (title) => String(title || "")
-    .split(/\s*(?:\n|\|)\s*/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !/^Từ\s+\d{4}-\d{2}-\d{2}/i.test(line))
-    .join(" | ");
+  const noteFromTitle = (title) => {
+    const source = String(title || "").replace(/\s+/g, " ").trim();
+    const labels = ["Ghi chú", "Nội dung", "Lý do", "Mô tả", "Mo ta"];
+    const labeledNotes = [];
+    for (const label of labels) {
+      const regex = new RegExp(`${label}\\s*:\\s*(.*?)(?=\\s+(?:${labels.join("|")}|Trạng thái triển khai|Địa điểm triển khai|Khách hàng|Cửa hàng)\\s*:|$)`, "gi");
+      for (const match of source.matchAll(regex)) {
+        const value = match[1]?.trim();
+        if (value) labeledNotes.push(`${label}: ${value}`);
+      }
+    }
+    if (labeledNotes.length) return Array.from(new Set(labeledNotes)).join(" | ");
+
+    return String(title || "")
+      .split(/\s*(?:\n|\|)\s*/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) => !/^Từ\s+\d{4}-\d{2}-\d{2}/i.test(line))
+      .join(" | ");
+  };
+
+  const noteFromItem = (item, title) => {
+    const lines = [
+      noteFromTitle(title),
+      ...((item.detailTexts || []).filter((value) => value && value !== item.text))
+    ]
+      .flatMap((value) => String(value || "").split(/\s*(?:\n|\|)\s*/))
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) => !/^Từ\s+\d{4}-\d{2}-\d{2}/i.test(line));
+    return Array.from(new Set(lines)).join(" | ");
+  };
 
   const linkFromItem = (item, links) => {
     if (links.length) return links[0];
@@ -728,22 +759,26 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
   };
 
   const typeFromClass = (className, text) => {
+    if (/type-further-deploy/i.test(className)) return "Hỗ trợ tiếp";
     if (/type-busy/i.test(className)) return "Lịch trực";
     if (/type-onsite/i.test(className)) return "Onsite";
     if (/type-deploy-extra/i.test(className)) return "Triển khai thêm";
     if (/type-deploy/i.test(className)) return "Triển khai";
     if (/type-maintain|type-maintenance/i.test(className)) return "Bảo trì";
-    if (/type-leave|type-off/i.test(className)) return "Nghỉ";
+    if (/type-leave|type-off|type-absence|type-vacation|type-holiday/i.test(className)) return "Nghỉ";
     return detectScheduleType(text);
   };
 
   return rawItems.map((item, index) => {
     const text = item.text;
     const links = collectLinks(`${text}\n${item.title || ""}\n${item.html || ""}\n${(item.hrefs || []).join("\n")}`);
-    const link = linkFromItem(item, links);
-    const allLinks = link && !links.includes(link) ? [link, ...links] : links;
-    const richText = [text, link].filter(Boolean).join("\n");
     const titleText = item.title || "";
+    const type = typeFromClass(item.className, `${text}\n${titleText}`);
+    const hasTicket = /#\d{5,}/.test(text);
+    const link = hasTicket ? linkFromItem(item, links) : (links[0] || "");
+    const allLinks = link && !links.includes(link) ? [link, ...links] : links;
+    const note = noteFromItem(item, titleText);
+    const richText = [text, note, link].filter(Boolean).join("\n");
     const status = text.match(/Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch|Nghỉ/i)?.[0]
       || titleText.match(/Trạng thái triển khai:\s*([^|\n]+)/i)?.[1]?.trim()
       || "";
@@ -751,11 +786,10 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
       .replace(/^#\d+\s*-\s*/, "")
       .replace(/\s+(Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch)$/i, "")
       .trim();
-    const note = noteFromTitle(titleText);
     return {
       id: `${targetDateText}-dom-${index}`,
       ticket: text.match(/#\d{5,}/)?.[0] || "",
-      type: typeFromClass(item.className, `${text}\n${titleText}`),
+      type,
       status,
       product,
       customer: titleText.match(/(?:Khách hàng|Cửa hàng|Địa điểm triển khai):\s*([^|\n]+)/i)?.[1]?.trim() || "",
