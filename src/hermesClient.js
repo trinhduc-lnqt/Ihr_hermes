@@ -11,6 +11,12 @@ const USERNAME_SELECTORS = [
   "input[name='UserId']",
   "input[name='username']",
   "input[name='userName']",
+  "input[type='email']",
+  "input[formcontrolname='email']",
+  "input[formcontrolname='username']",
+  "input[placeholder*='Email' i]",
+  "input[placeholder*='đăng nhập' i]",
+  "input[placeholder*='dang nhap' i]",
   "input[type='text']"
 ];
 
@@ -21,6 +27,9 @@ const PASSWORD_SELECTORS = [
   "#Password",
   "input[name='Password']",
   "input[name='password']",
+  "input[formcontrolname='password']",
+  "input[placeholder*='Mật khẩu' i]",
+  "input[placeholder*='Mat khau' i]",
   "input[type='password']"
 ];
 
@@ -99,6 +108,8 @@ export async function validateHermesLogin({ username, password }) {
 
   try {
     await page.goto(config.hermesLoginUrl, { waitUntil: "domcontentloaded", timeout: config.timeoutMs });
+    await page.waitForSelector("input", { state: "visible", timeout: config.timeoutMs });
+    await page.waitForTimeout(500);
     await fillFirstVisible(page, USERNAME_SELECTORS, username, "tai khoan");
     await fillFirstVisible(page, PASSWORD_SELECTORS, password, "mat khau");
     await clickFirstVisible(page, SUBMIT_SELECTORS);
