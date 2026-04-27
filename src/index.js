@@ -12,7 +12,7 @@ import {
   parseAdjMinuteInput
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
-import { cancelHermesOtpSession, formatWorkScheduleResult, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
+import { cancelHermesOtpSession, formatWorkScheduleDetail, formatWorkScheduleResult, getRelativeWorkScheduleDate, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
 import { deleteHermesAccount, deleteUserAccount, getAllUserAccounts, getHermesAccount, getUserAccount, saveHermesAccount, saveUserAccount, updateSalaryMonitorState } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
@@ -23,6 +23,7 @@ assertBotConfig();
 
 const bot = new Telegraf(config.telegramToken);
 const pendingActions = new Map();
+const workScheduleCache = new Map();
 const startedAt = new Date();
 const UI = {
   ihrMenu: "🕒 IHR - Chấm công",
@@ -184,9 +185,36 @@ function ihrKeyboard() {
 function hermesKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback(UI.hermesWork, "action:hermes_work")],
+    [Markup.button.callback("📅 Hôm nay", "action:hermes_work_offset:0"), Markup.button.callback("➡️ Ngày mai", "action:hermes_work_offset:1")],
+    [Markup.button.callback("⬅️ Hôm qua", "action:hermes_work_offset:-1"), Markup.button.callback("📆 Ngày khác", "action:hermes_work_other")],
     [Markup.button.callback(UI.hermesAccount, "action:hermes_account")],
     [Markup.button.callback(UI.deleteHermesAccount, "action:delete_hermes")],
     [Markup.button.callback(UI.backToMenu, "action:menu")]
+  ]);
+}
+
+function workScheduleKeyboard(result, cacheKey) {
+  const rows = [];
+  const entries = result?.entries || [];
+  for (let index = 0; index < Math.min(entries.length, 10); index += 1) {
+    const entry = entries[index];
+    const labelParts = [entry.ticket, entry.type, entry.status].filter(Boolean);
+    rows.push([Markup.button.callback(`🔎 ${index + 1}. ${labelParts.join(" - ") || "Chi tiết lịch"}`, `action:hermes_work_detail:${cacheKey}:${index}`)]);
+  }
+  rows.push([
+    Markup.button.callback("⬅️ Ngày trước", `action:hermes_work_date:${result.targetDate}:-1`),
+    Markup.button.callback("➡️ Ngày sau", `action:hermes_work_date:${result.targetDate}:1`)
+  ]);
+  rows.push([Markup.button.callback("📆 Ngày khác", "action:hermes_work_other")]);
+  rows.push([Markup.button.callback(UI.backToMenu, "action:hermes_menu")]);
+  return Markup.inlineKeyboard(rows);
+}
+
+function workScheduleDetailKeyboard(result, cacheKey) {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback("⬅️ Về danh sách lịch", `action:hermes_work_list:${cacheKey}`)],
+    [Markup.button.callback("📆 Ngày khác", "action:hermes_work_other")],
+    [Markup.button.callback(UI.backToMenu, "action:hermes_menu")]
   ]);
 }
 
@@ -1090,6 +1118,35 @@ function parseScheduleCommandDate(text) {
   return parseWorkScheduleDateInput(arg);
 }
 
+function getWorkScheduleCacheKey(chatId, targetDate) {
+  return `${chatId}:${targetDate}`;
+}
+
+function rememberWorkSchedule(ctx, result) {
+  const key = getWorkScheduleCacheKey(ctx.chat.id, result.targetDate);
+  workScheduleCache.set(key, { result, savedAt: Date.now() });
+  for (const [cacheKey, value] of workScheduleCache.entries()) {
+    if (Date.now() - value.savedAt > 30 * 60 * 1000) {
+      workScheduleCache.delete(cacheKey);
+    }
+  }
+  return key;
+}
+
+async function askWorkScheduleOtherDate(ctx) {
+  pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_date" });
+  await ctx.reply([
+    "Sếp gửi ngày muốn xem lịch trực nhé.",
+    "Mẫu:",
+    "28/04",
+    "28/04/2026",
+    "mai",
+    "hôm nay",
+    "",
+    "/cancel để huỷ."
+  ].join("\n"));
+}
+
 async function getHermesAccountOrReply(ctx) {
   const account = await getHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
   if (!account?.hermesUsername || !account?.hermesPassword) {
@@ -1123,7 +1180,8 @@ async function showWorkSchedule(ctx, date = new Date()) {
     return;
   }
 
-  await ctx.reply(formatWorkScheduleResult(result), hermesKeyboard());
+  const cacheKey = rememberWorkSchedule(ctx, result);
+  await ctx.reply(formatWorkScheduleResult(result), workScheduleKeyboard(result, cacheKey));
 }
 
 async function handleDirectCommand(ctx, action) {
@@ -1305,6 +1363,52 @@ bot.action("action:hermes_menu", async (ctx) => {
 bot.action("action:hermes_work", async (ctx) => {
   await ctx.answerCbQuery("Đang lấy lịch hôm nay...");
   await showWorkSchedule(ctx, new Date());
+});
+
+bot.action(/^action:hermes_work_offset:(-?\d+)$/, async (ctx) => {
+  const offset = Number(ctx.match?.[1] || 0);
+  await ctx.answerCbQuery("Đang lấy lịch...");
+  await showWorkSchedule(ctx, getRelativeWorkScheduleDate(offset));
+});
+
+bot.action(/^action:hermes_work_date:(\d{4}-\d{2}-\d{2}):(-?\d+)$/, async (ctx) => {
+  const baseDate = parseWorkScheduleDateInput(ctx.match?.[1]);
+  const offset = Number(ctx.match?.[2] || 0);
+  await ctx.answerCbQuery("Đang lấy lịch...");
+  await showWorkSchedule(ctx, getRelativeWorkScheduleDate(offset, baseDate || new Date()));
+});
+
+bot.action("action:hermes_work_other", async (ctx) => {
+  await ctx.answerCbQuery();
+  await askWorkScheduleOtherDate(ctx);
+});
+
+bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
+  const cacheKey = ctx.match?.[1];
+  const index = Number(ctx.match?.[2] || 0);
+  const cached = workScheduleCache.get(cacheKey);
+  await ctx.answerCbQuery();
+  if (!cached) {
+    await ctx.reply("Dữ liệu lịch đã hết hạn. Sếp bấm lấy lịch lại nhé.", hermesKeyboard());
+    return;
+  }
+  const entry = cached.result.entries?.[index];
+  if (!entry) {
+    await ctx.reply("Không tìm thấy mục lịch này. Sếp bấm lấy lịch lại nhé.", workScheduleKeyboard(cached.result, cacheKey));
+    return;
+  }
+  await ctx.reply(formatWorkScheduleDetail(entry, cached.result), workScheduleDetailKeyboard(cached.result, cacheKey));
+});
+
+bot.action(/^action:hermes_work_list:(.+)$/, async (ctx) => {
+  const cacheKey = ctx.match?.[1];
+  const cached = workScheduleCache.get(cacheKey);
+  await ctx.answerCbQuery();
+  if (!cached) {
+    await ctx.reply("Dữ liệu lịch đã hết hạn. Sếp bấm lấy lịch lại nhé.", hermesKeyboard());
+    return;
+  }
+  await ctx.reply(formatWorkScheduleResult(cached.result), workScheduleKeyboard(cached.result, cacheKey));
 });
 
 bot.action("action:menu", async (ctx) => {
@@ -1541,7 +1645,19 @@ bot.on("text", async (ctx, next) => {
       await ctx.reply(`Xác nhận OTP/lấy lịch lỗi: ${result.message}`, hermesKeyboard());
       return;
     }
-    await ctx.reply(formatWorkScheduleResult(result), hermesKeyboard());
+    const cacheKey = rememberWorkSchedule(ctx, result);
+    await ctx.reply(formatWorkScheduleResult(result), workScheduleKeyboard(result, cacheKey));
+    return;
+  }
+
+  if (pending.stage === "hermes_schedule_date") {
+    const date = parseWorkScheduleDateInput(ctx.message.text);
+    if (!date) {
+      await ctx.reply("Ngày không hợp lệ Sếp. Gửi theo mẫu 28/04 hoặc 28/04/2026, hoặc /cancel để huỷ.");
+      return;
+    }
+    pendingActions.delete(ctx.chat.id);
+    await showWorkSchedule(ctx, date);
     return;
   }
 

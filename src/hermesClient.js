@@ -570,7 +570,92 @@ function extractScheduleEntriesFromBody(bodyText, targetDate) {
     }
   }
 
-  return lineItems.map((text) => ({ text, date: targetDateText }));
+  return lineItems.map((text, index) => ({
+    id: `${targetDateText}-body-${index}`,
+    ticket: text.match(/#\d{5,}/)?.[0] || "",
+    type: detectScheduleType(text),
+    status: text.match(/Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch|Nghỉ/i)?.[0] || "",
+    product: text.replace(/^#\d+\s*-\s*/, "").replace(/\s+—\s+.*$/, ""),
+    customer: "",
+    owner: "duc.dao",
+    shift: "",
+    time: "",
+    note: "",
+    text,
+    date: targetDateText
+  }));
+}
+
+function getFieldValue(item, names) {
+  if (!item || typeof item !== "object") {
+    return "";
+  }
+  const normalizedNames = names.map((name) => String(name).toLowerCase());
+  const stack = [item];
+  const seen = new Set();
+  while (stack.length) {
+    const current = stack.pop();
+    if (!current || typeof current !== "object" || seen.has(current)) {
+      continue;
+    }
+    seen.add(current);
+    for (const [key, value] of Object.entries(current)) {
+      const lowerKey = key.toLowerCase();
+      if (normalizedNames.includes(lowerKey) && value !== null && value !== undefined && typeof value !== "object") {
+        return String(value).trim();
+      }
+      if (value && typeof value === "object") {
+        stack.push(value);
+      }
+    }
+  }
+  return "";
+}
+
+function detectScheduleType(text) {
+  if (/lịch trực|lich truc/i.test(text)) return "Lịch trực";
+  if (/nghỉ|nghi/i.test(text)) return "Nghỉ";
+  if (/hỗ trợ tiếp|ho tro tiep/i.test(text)) return "Hỗ trợ tiếp";
+  if (/onsite/i.test(text)) return "Onsite";
+  if (/bảo trì|bao tri/i.test(text)) return "Bảo trì";
+  if (/triển khai thêm|trien khai them/i.test(text)) return "Triển khai thêm";
+  if (/triển khai|trien khai/i.test(text)) return "Triển khai";
+  return "Lịch làm việc";
+}
+
+function buildScheduleEntry(item, targetDateText, fallbackIndex = 0) {
+  const parts = flattenScheduleText(item);
+  const cleanParts = parts
+    .filter((part) => !/^([a-f0-9]{24}|true|false|null)$/i.test(part))
+    .filter((part) => part !== targetDateText);
+  const text = cleanParts.join(" | ") || JSON.stringify(item);
+  const ticketMatch = text.match(/#\d{5,}/);
+  const product = getFieldValue(item, ["productName", "product", "moduleName", "serviceName", "projectName"]);
+  const customer = getFieldValue(item, ["customerName", "customer", "storeName", "merchantName", "shopName"]);
+  const status = getFieldValue(item, ["statusName", "status", "scheduleStatus", "ticketStatus"])
+    || (text.match(/Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch|Nghỉ/i)?.[0] || "");
+  const owner = getFieldValue(item, ["assignee", "assigneeName", "employeeName", "supporter", "supporterName", "username"]);
+  const shift = getFieldValue(item, ["shift", "shiftName", "session", "sessionName", "timeName"])
+    || (text.match(/\b(Sáng|Chiều|Tối)\b/i)?.[0] || "");
+  const time = getFieldValue(item, ["startTime", "endTime", "fromTime", "toTime", "scheduleTime", "date"]);
+  const note = getFieldValue(item, ["note", "description", "content", "reason"]);
+  const type = getFieldValue(item, ["typeName", "scheduleType", "scheduleTypeName", "workType", "workTypeName"]) || detectScheduleType(text);
+
+  return {
+    id: getFieldValue(item, ["id", "_id", "scheduleId"]) || `${targetDateText}-${fallbackIndex}`,
+    ticket: ticketMatch?.[0] || "",
+    type,
+    status,
+    product,
+    customer,
+    owner,
+    shift,
+    time,
+    note,
+    text,
+    raw: item,
+    date: targetDateText
+  };
 }
 
 function normalizeScheduleEntriesFromApi(apiResponses, targetDate) {
@@ -581,14 +666,7 @@ function normalizeScheduleEntriesFromApi(apiResponses, targetDate) {
   }
   const roots = parseScheduleResponse(response.body);
   const rawItems = collectScheduleItems(roots, targetDateText);
-  return rawItems.map((item) => {
-    const parts = flattenScheduleText(item);
-    const text = parts
-      .filter((part) => !/^([a-f0-9]{24}|true|false|null)$/i.test(part))
-      .filter((part) => part !== targetDateText)
-      .join(" | ");
-    return { text: text || JSON.stringify(item), raw: item, date: targetDateText };
-  });
+  return rawItems.map((item, index) => buildScheduleEntry(item, targetDateText, index));
 }
 
 async function loginHermesPage({ username, password }) {
@@ -684,6 +762,46 @@ export function parseWorkScheduleDateInput(text, now = new Date()) {
   return null;
 }
 
+export function getRelativeWorkScheduleDate(offsetDays = 0, now = new Date()) {
+  return addDays(fromHermesLocalDate(toHermesLocalDate(now)), offsetDays);
+}
+
+export function formatWorkScheduleDetail(entry, result = {}) {
+  const checkedAt = new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "short",
+    timeStyle: "medium",
+    timeZone: config.timezoneId
+  }).format(result.checkedAt || new Date());
+  const target = fromHermesLocalDate(entry?.date || result.targetDate);
+  const targetLabel = new Intl.DateTimeFormat("vi-VN", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: config.timezoneId
+  }).format(target || new Date());
+
+  const lines = [
+    "📋 Chi tiết lịch làm việc",
+    `Ngày: ${targetLabel}`,
+    `Kiểm tra lúc: ${checkedAt}`,
+    "",
+    `Loại lịch: ${entry?.type || "Chưa rõ"}`,
+    `Ca: ${entry?.shift || "Chưa rõ"}`,
+    `Mã PYC/Ticket: ${entry?.ticket || "Không có"}`,
+    `Sản phẩm/Dịch vụ: ${entry?.product || "Không có"}`,
+    `Khách hàng/Cửa hàng: ${entry?.customer || "Không có"}`,
+    `Trạng thái: ${entry?.status || "Chưa rõ"}`,
+    `Người phụ trách: ${entry?.owner || "duc.dao"}`,
+    `Thời gian: ${entry?.time || "Theo ô lịch Hermes"}`,
+    `Ghi chú: ${entry?.note || "Không có"}`,
+    "",
+    "Tóm tắt:",
+    entry?.text || "Không có dữ liệu chi tiết."
+  ];
+  return lines.join("\n");
+}
+
 export function formatWorkScheduleResult(result) {
   const checkedAt = new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "short",
@@ -711,8 +829,11 @@ export function formatWorkScheduleResult(result) {
   }
 
   lines.push("Có lịch:");
-  for (const entry of result.entries.slice(0, 20)) {
-    lines.push(`- ${entry.text}`);
+  for (const [index, entry] of result.entries.slice(0, 20).entries()) {
+    const label = [entry.type, entry.shift, entry.ticket, entry.product, entry.status]
+      .filter(Boolean)
+      .join(" — ");
+    lines.push(`${index + 1}. ${label || entry.text}`);
   }
   if (result.entries.length > 20) {
     lines.push(`... và ${result.entries.length - 20} mục nữa.`);
