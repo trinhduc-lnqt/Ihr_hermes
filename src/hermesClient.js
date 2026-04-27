@@ -484,28 +484,58 @@ function parseScheduleResponse(text) {
   return [];
 }
 
-function collectScheduleItems(value, targetDateText, output = []) {
+function isPlainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value);
+}
+
+function objectHasDirectScheduleSignal(value) {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+  const keys = Object.keys(value).map((key) => key.toLowerCase());
+  return keys.some((key) => /schedule|working|work|ticket|request|calendar|support|type|status|start|end|date|link|url/.test(key));
+}
+
+function valueContainsTargetDate(value, targetDateText) {
+  if (value === null || value === undefined) return false;
+  if (typeof value !== "object") return String(value).includes(targetDateText);
+  return Object.values(value).some((child) => valueContainsTargetDate(child, targetDateText));
+}
+
+function collectScheduleItems(value, targetDateText, output = [], depth = 0) {
   if (!value || typeof value !== "object") {
     return output;
   }
 
   if (Array.isArray(value)) {
+    const directMatches = value.filter((item) => {
+      if (!isPlainObject(item)) return false;
+      const text = JSON.stringify(item);
+      return valueContainsTargetDate(item, targetDateText)
+        && objectHasDirectScheduleSignal(item)
+        && /#\d{5,}|Lịch trực|Lich truc|Nghỉ|Nghi|Đã phân lịch|Da phan lich|Tạm dừng|Tam dung|FABI|iPOS|CRM/i.test(text);
+    });
+    if (directMatches.length) {
+      output.push(...directMatches);
+      return output;
+    }
     for (const item of value) {
-      collectScheduleItems(item, targetDateText, output);
+      collectScheduleItems(item, targetDateText, output, depth + 1);
     }
     return output;
   }
 
   const text = JSON.stringify(value);
-  const hasTargetDate = text.includes(targetDateText);
+  const hasTargetDate = valueContainsTargetDate(value, targetDateText);
   const hasUsefulScheduleSignal = /#\d{5,}|Lịch trực|Lich truc|Nghỉ|Nghi|Đã phân lịch|Da phan lich|Tạm dừng|Tam dung|FABI|iPOS|CRM/i.test(text);
-  if (hasTargetDate && hasUsefulScheduleSignal) {
+  if (hasTargetDate && hasUsefulScheduleSignal && objectHasDirectScheduleSignal(value)) {
     output.push(value);
+    return output;
   }
 
   for (const child of Object.values(value)) {
     if (child && typeof child === "object") {
-      collectScheduleItems(child, targetDateText, output);
+      collectScheduleItems(child, targetDateText, output, depth + 1);
     }
   }
   return output;
@@ -581,6 +611,8 @@ function extractScheduleEntriesFromBody(bodyText, targetDate) {
     shift: "",
     time: "",
     note: "",
+    links: collectLinks(text),
+    link: collectLinks(text)[0] || "",
     text,
     date: targetDateText
   }));
@@ -601,7 +633,7 @@ function getFieldValue(item, names) {
     seen.add(current);
     for (const [key, value] of Object.entries(current)) {
       const lowerKey = key.toLowerCase();
-      if (normalizedNames.includes(lowerKey) && value !== null && value !== undefined && typeof value !== "object") {
+      if ((normalizedNames.includes(lowerKey) || normalizedNames.some((name) => lowerKey.includes(name))) && value !== null && value !== undefined && typeof value !== "object") {
         return String(value).trim();
       }
       if (value && typeof value === "object") {
@@ -610,6 +642,55 @@ function getFieldValue(item, names) {
     }
   }
   return "";
+}
+
+function collectLinks(item) {
+  const links = [];
+  const seenLinks = new Set();
+  const stack = [item];
+  const seen = new Set();
+  while (stack.length) {
+    const current = stack.pop();
+    if (current === null || current === undefined || seen.has(current)) continue;
+    if (typeof current === "string") {
+      const matches = current.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+      for (const link of matches) {
+        if (!seenLinks.has(link)) {
+          seenLinks.add(link);
+          links.push(link);
+        }
+      }
+      continue;
+    }
+    if (typeof current !== "object") continue;
+    seen.add(current);
+    for (const [key, value] of Object.entries(current)) {
+      const lowerKey = key.toLowerCase();
+      if (/url|link|href/.test(lowerKey) && typeof value === "string" && value.trim()) {
+        let link = value.trim();
+        if (link.startsWith("/")) {
+          const baseUrl = getHermesBaseUrl();
+          link = baseUrl ? `${baseUrl}${link}` : link;
+        }
+        if (!seenLinks.has(link)) {
+          seenLinks.add(link);
+          links.push(link);
+        }
+      }
+      if (value && typeof value === "object") {
+        stack.push(value);
+      } else if (typeof value === "string") {
+        const matches = value.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+        for (const link of matches) {
+          if (!seenLinks.has(link)) {
+            seenLinks.add(link);
+            links.push(link);
+          }
+        }
+      }
+    }
+  }
+  return links;
 }
 
 function detectScheduleType(text) {
@@ -637,9 +718,10 @@ function buildScheduleEntry(item, targetDateText, fallbackIndex = 0) {
   const owner = getFieldValue(item, ["assignee", "assigneeName", "employeeName", "supporter", "supporterName", "username"]);
   const shift = getFieldValue(item, ["shift", "shiftName", "session", "sessionName", "timeName"])
     || (text.match(/\b(Sáng|Chiều|Tối)\b/i)?.[0] || "");
-  const time = getFieldValue(item, ["startTime", "endTime", "fromTime", "toTime", "scheduleTime", "date"]);
+  const time = getFieldValue(item, ["startTime", "endTime", "fromTime", "toTime", "scheduleTime", "date", "workingDate", "workDate"]);
   const note = getFieldValue(item, ["note", "description", "content", "reason"]);
-  const type = getFieldValue(item, ["typeName", "scheduleType", "scheduleTypeName", "workType", "workTypeName"]) || detectScheduleType(text);
+  const type = getFieldValue(item, ["typeName", "scheduleType", "scheduleTypeName", "workType", "workTypeName", "taskType", "taskTypeName"]) || detectScheduleType(text);
+  const links = collectLinks(item);
 
   return {
     id: getFieldValue(item, ["id", "_id", "scheduleId"]) || `${targetDateText}-${fallbackIndex}`,
@@ -652,6 +734,8 @@ function buildScheduleEntry(item, targetDateText, fallbackIndex = 0) {
     shift,
     time,
     note,
+    links,
+    link: links[0] || "",
     text,
     raw: item,
     date: targetDateText
@@ -808,6 +892,7 @@ export function formatWorkScheduleDetail(entry, result = {}) {
     `Người phụ trách: ${entry?.owner || "duc.dao"}`,
     `Thời gian: ${entry?.time || "Theo ô lịch Hermes"}`,
     `Ghi chú: ${entry?.note || "Không có"}`,
+    `Link lịch: ${entry?.links?.length ? entry.links.join("\n") : "Không có"}`,
     "",
     "Tóm tắt:",
     entry?.text || "Không có dữ liệu chi tiết."
@@ -850,8 +935,22 @@ export function formatWorkScheduleResult(result) {
   }
 
   lines.push(`Có ${result.entries.length} lịch:`);
-  for (const [index, entry] of result.entries.slice(0, 20).entries()) {
-    lines.push(`${index + 1}. ${formatWorkScheduleSummaryLine(entry)}`);
+  const grouped = new Map();
+  for (const entry of result.entries) {
+    const key = entry.type || "Lịch làm việc";
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(entry);
+  }
+  let index = 1;
+  for (const [type, entries] of grouped.entries()) {
+    if (index > 20) break;
+    lines.push(`\n${type}:`);
+    for (const entry of entries) {
+      if (index > 20) break;
+      const linkHint = entry.links?.length ? " 🔗" : "";
+      lines.push(`${index}. ${formatWorkScheduleSummaryLine(entry)}${linkHint}`);
+      index += 1;
+    }
   }
   if (result.entries.length > 20) {
     lines.push(`... và ${result.entries.length - 20} lịch nữa.`);
