@@ -34,6 +34,7 @@ const loginPath = normalizePath(process.env.IHR_LOGIN_PATH, "/System/Login");
 const checkInPath = normalizePath(process.env.IHR_CHECKIN_PATH, "/Hrm/CheckInOut_Online");
 const hermesBaseUrl = (process.env.HERMES_BASE_URL || "").trim().replace(/\/+$/, "");
 const hermesLoginPath = normalizePath(process.env.HERMES_LOGIN_PATH, "/System/Login");
+const hermesOtpTimeoutMs = toNumber(process.env.HERMES_OTP_TIMEOUT_MS, 180000);
 
 const allowedIds = (process.env.ALLOWED_TELEGRAM_IDS || "")
   .split(",")
@@ -77,6 +78,7 @@ export const config = {
   baseUrl,
   hermesBaseUrl,
   hermesLoginUrl: hermesBaseUrl ? `${hermesBaseUrl}${hermesLoginPath}` : "",
+  hermesOtpTimeoutMs,
   geo: hasGeo
     ? {
         latitude: Number(lat),

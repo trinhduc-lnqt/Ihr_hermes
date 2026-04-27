@@ -12,7 +12,7 @@ import {
   parseAdjMinuteInput
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
-import { validateHermesLogin } from "./hermesClient.js";
+import { cancelHermesOtpSession, submitHermesOtp, validateHermesLogin } from "./hermesClient.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
 import { deleteHermesAccount, deleteUserAccount, getAllUserAccounts, getHermesAccount, getUserAccount, saveHermesAccount, saveUserAccount, updateSalaryMonitorState } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
@@ -882,6 +882,10 @@ bot.command("deletehermes", async (ctx) => {
 });
 
 bot.command("cancel", async (ctx) => {
+  const pending = pendingActions.get(ctx.chat.id);
+  if (pending?.stage === "hermes_otp") {
+    await cancelHermesOtpSession();
+  }
   pendingActions.delete(ctx.chat.id);
   await ctx.reply("Da huy thao tac dang doi.", Markup.removeKeyboard());
 });
@@ -967,7 +971,12 @@ bot.command("sethermes", async (ctx) => {
   });
 
   await ctx.reply(`Da luu tai khoan Hermes cho ${hermesUsername}. Dang test dang nhap...`);
-  const result = await enqueue(() => validateHermesLogin({ username: hermesUsername, password: hermesPassword }));
+  const result = await enqueue(() => validateHermesLogin({ username: hermesUsername, password: hermesPassword, keepOtpSession: true }));
+  if (result.otpRequired) {
+    pendingActions.set(ctx.chat.id, { stage: "hermes_otp" });
+    await ctx.reply("Hermes đang yêu cầu OTP. Sếp gửi mã OTP vào tin nhắn tiếp theo nhé. Có thể /cancel để huỷ.");
+    return;
+  }
   await ctx.reply(result.ok ? result.message : `Luu roi nhung test Hermes loi: ${result.message}`, keyboard());
 });
 
@@ -1440,6 +1449,24 @@ bot.on("text", async (ctx, next) => {
     return;
   }
 
+  if (pending.stage === "hermes_otp") {
+    const otp = ctx.message.text.trim().replace(/\s+/g, "");
+    if (!otp) {
+      await ctx.reply("OTP đang rỗng. Sếp gửi lại mã OTP hoặc /cancel để huỷ.");
+      return;
+    }
+
+    await ctx.reply("Đã nhận OTP Hermes, em đang xác nhận...");
+    const result = await enqueue(() => submitHermesOtp(otp));
+    if (result.otpRequired) {
+      await ctx.reply(result.message);
+      return;
+    }
+    pendingActions.delete(ctx.chat.id);
+    await ctx.reply(result.ok ? result.message : `Xac nhan OTP Hermes loi: ${result.message}`, keyboard());
+    return;
+  }
+
   if (pending.stage === "hermes_credentials") {
     const parts = ctx.message.text.trim().split(/\s+/);
     if (parts.length < 2) {
@@ -1465,7 +1492,12 @@ bot.on("text", async (ctx, next) => {
 
     pendingActions.delete(ctx.chat.id);
     await ctx.reply(`Da luu tai khoan Hermes cho ${hermesUsername}. Dang test dang nhap...`);
-    const result = await enqueue(() => validateHermesLogin({ username: hermesUsername, password: hermesPassword }));
+    const result = await enqueue(() => validateHermesLogin({ username: hermesUsername, password: hermesPassword, keepOtpSession: true }));
+    if (result.otpRequired) {
+      pendingActions.set(ctx.chat.id, { stage: "hermes_otp" });
+      await ctx.reply("Hermes đang yêu cầu OTP. Sếp gửi mã OTP vào tin nhắn tiếp theo nhé. Có thể /cancel để huỷ.");
+      return;
+    }
     await ctx.reply(result.ok ? result.message : `Luu roi nhung test Hermes loi: ${result.message}`, keyboard());
     return;
   }

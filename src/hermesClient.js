@@ -33,6 +33,19 @@ const PASSWORD_SELECTORS = [
   "input[type='password']"
 ];
 
+const OTP_SELECTORS = [
+  "input[autocomplete='one-time-code']",
+  "input[name*='otp' i]",
+  "input[id*='otp' i]",
+  "input[formcontrolname*='otp' i]",
+  "input[placeholder*='OTP' i]",
+  "input[placeholder*='mã' i]",
+  "input[placeholder*='ma' i]",
+  "input[inputmode='numeric']",
+  "input[type='tel']",
+  "input[type='number']"
+];
+
 const SUBMIT_SELECTORS = [
   "#btnlogin",
   "#btnLogin",
@@ -44,6 +57,31 @@ const SUBMIT_SELECTORS = [
   "a:has-text('Đăng nhập')",
   "a:has-text('Login')"
 ];
+
+const OTP_SUBMIT_SELECTORS = [
+  "button[type='submit']",
+  "input[type='submit']",
+  "button:has-text('Xác nhận')",
+  "button:has-text('Xac nhan')",
+  "button:has-text('Tiếp tục')",
+  "button:has-text('Tiep tuc')",
+  "button:has-text('Gửi')",
+  "button:has-text('Gui')",
+  "button:has-text('Đăng nhập')",
+  "button:has-text('Login')"
+];
+
+const ERROR_SELECTORS = [
+  "#lblMessage",
+  ".validation-summary-errors",
+  ".field-validation-error",
+  ".alert-danger",
+  ".toast-error",
+  ".k-notification-error",
+  "text=/sai|không đúng|khong dung|thất bại|that bai|invalid|incorrect/i"
+];
+
+let activeHermesSession = null;
 
 async function fillFirstVisible(page, selectors, value, label) {
   for (const selector of selectors) {
@@ -87,7 +125,36 @@ async function readFirstText(page, selectors) {
   return "";
 }
 
-export async function validateHermesLogin({ username, password }) {
+async function hasVisibleOtpInput(page) {
+  for (const selector of OTP_SELECTORS) {
+    const visible = await page.locator(selector).first().isVisible().catch(() => false);
+    if (visible) {
+      return true;
+    }
+  }
+  const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
+  return /\bOTP\b|mã xác thực|ma xac thuc|xác minh|xac minh|verification code/i.test(bodyText);
+}
+
+async function isLoggedIn(page) {
+  const passwordStillVisible = await page.locator("input[type='password']").first().isVisible().catch(() => false);
+  const currentUrl = page.url();
+  const stayedOnLogin = currentUrl.includes(config.hermesLoginUrl) || /login|dang-?nhap/i.test(currentUrl);
+  return !passwordStillVisible && !stayedOnLogin;
+}
+
+async function closeActiveHermesSession() {
+  if (!activeHermesSession) {
+    return;
+  }
+  const session = activeHermesSession;
+  activeHermesSession = null;
+  clearTimeout(session.timer);
+  await session.browser.close().catch(() => {});
+}
+
+export async function validateHermesLogin({ username, password, keepOtpSession = false }) {
+  await closeActiveHermesSession();
   if (!config.hermesLoginUrl) {
     return {
       ok: true,
@@ -114,25 +181,25 @@ export async function validateHermesLogin({ username, password }) {
     await fillFirstVisible(page, PASSWORD_SELECTORS, password, "mat khau");
     await clickFirstVisible(page, SUBMIT_SELECTORS);
     await page.waitForLoadState("networkidle", { timeout: config.timeoutMs }).catch(() => {});
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
 
-    const errorText = await readFirstText(page, [
-      "#lblMessage",
-      ".validation-summary-errors",
-      ".field-validation-error",
-      ".alert-danger",
-      ".toast-error",
-      ".k-notification-error",
-      "text=/sai|không đúng|khong dung|thất bại|that bai|invalid|incorrect/i"
-    ]);
-
+    const errorText = await readFirstText(page, ERROR_SELECTORS);
     if (errorText) {
       return { ok: false, message: `Dang nhap Hermes that bai: ${errorText}` };
     }
 
-    const passwordStillVisible = await page.locator("input[type='password']").first().isVisible().catch(() => false);
-    const stayedOnLogin = page.url().includes(config.hermesLoginUrl) || /login|dang-?nhap/i.test(page.url());
-    if (passwordStillVisible && stayedOnLogin) {
+    if (await hasVisibleOtpInput(page)) {
+      if (!keepOtpSession) {
+        return { ok: false, otpRequired: true, message: "Hermes yeu cau OTP." };
+      }
+      const timer = setTimeout(() => {
+        closeActiveHermesSession().catch(() => {});
+      }, Math.max(config.hermesOtpTimeoutMs, 60_000));
+      activeHermesSession = { browser, context, page, username, timer };
+      return { ok: false, otpRequired: true, message: "Hermes yeu cau OTP. Hay gui ma OTP de em xac nhan tiep." };
+    }
+
+    if (!(await isLoggedIn(page))) {
       return { ok: false, message: "Hermes van dung o man hinh dang nhap, kha nang sai tai khoan/mat khau." };
     }
 
@@ -140,6 +207,46 @@ export async function validateHermesLogin({ username, password }) {
   } catch (error) {
     return { ok: false, message: error.message || "Khong test duoc dang nhap Hermes." };
   } finally {
-    await browser.close();
+    if (!activeHermesSession || activeHermesSession.browser !== browser) {
+      await browser.close().catch(() => {});
+    }
   }
+}
+
+export async function submitHermesOtp(otp) {
+  if (!activeHermesSession) {
+    return { ok: false, expired: true, message: "Khong co phien Hermes nao dang cho OTP hoac phien da het han." };
+  }
+
+  const session = activeHermesSession;
+  const { page } = session;
+  try {
+    await fillFirstVisible(page, OTP_SELECTORS, otp, "OTP");
+    await clickFirstVisible(page, OTP_SUBMIT_SELECTORS);
+    await page.waitForLoadState("networkidle", { timeout: config.timeoutMs }).catch(() => {});
+    await page.waitForTimeout(1500);
+
+    const errorText = await readFirstText(page, ERROR_SELECTORS);
+    if (errorText) {
+      return { ok: false, message: `OTP Hermes that bai: ${errorText}` };
+    }
+
+    if (await hasVisibleOtpInput(page)) {
+      return { ok: false, otpRequired: true, message: "Hermes van dang cho OTP. Ma vua nhap co the chua dung hoac chua du." };
+    }
+
+    if (!(await isLoggedIn(page))) {
+      return { ok: false, message: "Da gui OTP nhung Hermes chua vao duoc trang sau dang nhap." };
+    }
+
+    return { ok: true, message: "Dang nhap Hermes OK sau OTP." };
+  } catch (error) {
+    return { ok: false, message: error.message || "Khong xac nhan duoc OTP Hermes." };
+  } finally {
+    await closeActiveHermesSession();
+  }
+}
+
+export async function cancelHermesOtpSession() {
+  await closeActiveHermesSession();
 }
