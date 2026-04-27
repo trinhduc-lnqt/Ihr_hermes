@@ -12,7 +12,7 @@ import {
   parseAdjMinuteInput
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
-import { cancelHermesOtpSession, submitHermesOtp, validateHermesLogin } from "./hermesClient.js";
+import { cancelHermesOtpSession, formatWorkScheduleResult, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
 import { deleteHermesAccount, deleteUserAccount, getAllUserAccounts, getHermesAccount, getUserAccount, saveHermesAccount, saveUserAccount, updateSalaryMonitorState } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
@@ -37,7 +37,7 @@ const UI = {
   salaryOther: "📚 Tháng khác",
   account: "👤 Tài khoản IHR",
   hermesAccount: "🔐 Tài khoản Hermes",
-  hermesWork: "📋 Công việc Hermes",
+  hermesWork: "📋 Lịch làm việc",
   cleanup: "🧹 Dọn dẹp",
   deleteAccount: "🗑️ Xoá TK IHR",
   deleteHermesAccount: "🗑️ Xoá TK Hermes",
@@ -64,6 +64,7 @@ const telegramCommands = [
   { command: "setaccount", description: "Luu tai khoan IHR" },
   { command: "sethermes", description: "Luu tai khoan Hermes" },
   { command: "deletehermes", description: "Xoa tai khoan Hermes" },
+  { command: "lich", description: "Xem lich lam viec Hermes theo ngay" },
   { command: "cancel", description: "Huy thao tac dang doi" },
   { command: "cleanup", description: "Don file tam bang luong" }
 ];
@@ -883,7 +884,7 @@ bot.command("deletehermes", async (ctx) => {
 
 bot.command("cancel", async (ctx) => {
   const pending = pendingActions.get(ctx.chat.id);
-  if (pending?.stage === "hermes_otp") {
+  if (pending?.stage === "hermes_otp" || pending?.stage === "hermes_schedule_otp") {
     await cancelHermesOtpSession();
   }
   pendingActions.delete(ctx.chat.id);
@@ -1083,6 +1084,48 @@ async function showSalary(ctx, month = getPreviousMonthDate()) {
   await ctx.reply(`Xong bang luong ${result.monthLabel}.`, keyboard());
 }
 
+function parseScheduleCommandDate(text) {
+  const raw = String(text || "").trim();
+  const arg = raw.split(/\s+/).slice(1).join(" ");
+  return parseWorkScheduleDateInput(arg);
+}
+
+async function getHermesAccountOrReply(ctx) {
+  const account = await getHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
+  if (!account?.hermesUsername || !account?.hermesPassword) {
+    await ctx.reply("Chưa có tài khoản Hermes. Gửi /sethermes để lưu trước nhé Sếp.", hermesKeyboard());
+    return null;
+  }
+  return account;
+}
+
+async function showWorkSchedule(ctx, date = new Date()) {
+  const account = await getHermesAccountOrReply(ctx);
+  if (!account) {
+    return;
+  }
+
+  await ctx.reply("Đang kiểm tra lịch làm việc Hermes theo thời gian thực tế...");
+  const result = await enqueue(() => getWorkScheduleByDay({
+    username: account.hermesUsername,
+    password: account.hermesPassword,
+    date
+  }));
+
+  if (result.otpRequired) {
+    pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_otp", date });
+    await ctx.reply("Hermes đang yêu cầu OTP. Sếp gửi mã OTP mới nhất vào tin nhắn tiếp theo, em sẽ lấy lịch ngay trong phiên này. /cancel để huỷ.");
+    return;
+  }
+
+  if (!result.ok) {
+    await ctx.reply(`Không lấy được lịch làm việc.\n${String(result.message || "Lỗi không xác định").slice(0, 700)}`, hermesKeyboard());
+    return;
+  }
+
+  await ctx.reply(formatWorkScheduleResult(result), hermesKeyboard());
+}
+
 async function handleDirectCommand(ctx, action) {
   const command = action === "checkout" ? "/checkout" : "/checkin";
   const reason = ctx.message.text.slice(command.length).trim();
@@ -1134,6 +1177,23 @@ bot.command("salary", async (ctx) => {
   }
 
   await showSalary(ctx, month);
+});
+
+bot.command(["lich", "schedule", "workschedule"], async (ctx) => {
+  const date = parseScheduleCommandDate(ctx.message.text);
+  if (!date) {
+    await ctx.reply([
+      "Ngày không hợp lệ Sếp.",
+      "Mẫu dùng:",
+      "/lich",
+      "/lich hôm nay",
+      "/lich mai",
+      "/lich 28/04",
+      "/lich 28/04/2026"
+    ].join("\n"));
+    return;
+  }
+  await showWorkSchedule(ctx, date);
 });
 
 bot.hears(UI.checkOut, async (ctx) => {
@@ -1243,12 +1303,8 @@ bot.action("action:hermes_menu", async (ctx) => {
 });
 
 bot.action("action:hermes_work", async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.reply([
-    "Hermes - Công việc hiện đã có phần đăng nhập tài khoản.",
-    "Phần lấy danh sách/xử lý công việc Hermes cần endpoint hoặc màn hình cụ thể sau khi Sếp đăng nhập để em map tiếp.",
-    "Trước mắt Sếp bấm Tài khoản Hermes hoặc gửi /sethermes để lưu đăng nhập."
-  ].join("\n"), hermesKeyboard());
+  await ctx.answerCbQuery("Đang lấy lịch hôm nay...");
+  await showWorkSchedule(ctx, new Date());
 });
 
 bot.action("action:menu", async (ctx) => {
@@ -1464,6 +1520,28 @@ bot.on("text", async (ctx, next) => {
     }
     pendingActions.delete(ctx.chat.id);
     await ctx.reply(result.ok ? result.message : `Xac nhan OTP Hermes loi: ${result.message}`, keyboard());
+    return;
+  }
+
+  if (pending.stage === "hermes_schedule_otp") {
+    const otp = ctx.message.text.trim().replace(/\s+/g, "");
+    if (!otp) {
+      await ctx.reply("OTP đang rỗng. Sếp gửi lại mã OTP hoặc /cancel để huỷ.");
+      return;
+    }
+
+    await ctx.reply("Đã nhận OTP Hermes, em đang xác nhận và lấy lịch...");
+    const result = await enqueue(() => submitHermesOtpAndGetWorkSchedule(otp, pending.date || new Date()));
+    if (result.otpRequired) {
+      await ctx.reply(result.message);
+      return;
+    }
+    pendingActions.delete(ctx.chat.id);
+    if (!result.ok) {
+      await ctx.reply(`Xác nhận OTP/lấy lịch lỗi: ${result.message}`, hermesKeyboard());
+      return;
+    }
+    await ctx.reply(formatWorkScheduleResult(result), hermesKeyboard());
     return;
   }
 

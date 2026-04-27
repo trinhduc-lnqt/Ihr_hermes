@@ -1,0 +1,28 @@
+import dotenv from 'dotenv'; dotenv.config({ override: true });
+import { chromium } from 'playwright';
+import { config } from '../src/config.js';
+import { getHermesAccount } from '../src/store.js';
+const otp=(process.argv[2]||'').trim();
+const account=await getHermesAccount({secret:config.botSecretKey, chatId:'1182254896'});
+const browser=await chromium.launch({headless:true});
+const context=await browser.newContext({ignoreHTTPSErrors:true, locale:config.locale, timezoneId:config.timezoneId, viewport:{width:1365,height:900}});
+const page=await context.newPage(); page.setDefaultTimeout(config.timeoutMs);
+const api=[]; page.on('response', async r=>{const u=r.url(); if(!u.includes('/api/')) return; let b=''; const ct=r.headers()['content-type']||''; if(ct.includes('json')) b=await r.text().catch(()=> ''); api.push({status:r.status(), method:r.request().method(), url:u, req:r.request().postData()||'', body:b});});
+await page.goto(config.hermesLoginUrl,{waitUntil:'domcontentloaded'}); await page.waitForTimeout(1500);
+await page.locator("input[formcontrolname='username'], input[type='email'], input[type='text']").first().fill(account.hermesUsername);
+await page.locator("input[type='password']").first().fill(account.hermesPassword);
+await page.locator("button[type='submit']").first().click(); await page.waitForTimeout(5000);
+const inputs=await page.locator('input[type=tel]').all();
+for(let i=0;i<inputs.length;i++){ await inputs[i].click(); await page.keyboard.type(otp[i]||'', {delay:80}); }
+await page.waitForTimeout(500);
+console.log('values before', await page.locator('input').evaluateAll(xs=>xs.map(x=>x.value)));
+console.log('buttons before', await page.locator('button').evaluateAll(bs=>bs.map(b=>({text:b.innerText,disabled:b.disabled,className:String(b.className)}))));
+const btn=page.locator("button:has-text('Xác thực')").first();
+console.log('btn visible/enabled', await btn.isVisible().catch(()=>false), await btn.isEnabled().catch(()=>false));
+await btn.click({force:true}).catch(e=>console.log('clickerr', e.message));
+await page.waitForTimeout(5000);
+console.log('url after', page.url());
+console.log('body after', (await page.locator('body').innerText().catch(()=> '')).slice(0,2000));
+console.log('api', JSON.stringify(api, null, 2).slice(0,12000));
+await page.screenshot({path:'artifacts/hermes-try-otp-debug.png', fullPage:true});
+await browser.close();

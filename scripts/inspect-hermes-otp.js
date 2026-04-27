@@ -1,0 +1,17 @@
+import { chromium } from 'playwright';
+import dotenv from 'dotenv'; dotenv.config({ override:true });
+import { config } from '../src/config.js';
+import { getHermesAccount } from '../src/store.js';
+const account=await getHermesAccount({secret:config.botSecretKey, chatId:'1182254896'});
+const browser=await chromium.launch({headless:true});
+const context=await browser.newContext({ignoreHTTPSErrors:true, locale:config.locale, timezoneId:config.timezoneId, viewport:{width:1365,height:900}});
+const page=await context.newPage(); page.setDefaultTimeout(config.timeoutMs);
+await page.goto(config.hermesLoginUrl,{waitUntil:'domcontentloaded'}); await page.waitForTimeout(2000);
+await page.locator("input[formcontrolname='username'], input[type='email'], input[formcontrolname='email'], input[placeholder*='Email' i], input[type='text']").first().fill(account.hermesUsername);
+await page.locator("input[type='password']").first().fill(account.hermesPassword);
+await page.locator("button[type='submit']").first().click(); await page.waitForTimeout(5000);
+console.log('url', page.url());
+console.log('body', await page.locator('body').innerText().catch(() => ''));
+console.log('inputs', JSON.stringify(await page.locator('input').evaluateAll(inputs=>inputs.map((el,i)=>({i,type:el.type,id:el.id,name:el.name,placeholder:el.placeholder,formcontrolname:el.getAttribute('formcontrolname'),value:el.value,visible:!!(el.offsetWidth||el.offsetHeight||el.getClientRects().length),disabled:el.disabled,autocomplete:el.autocomplete,inputmode:el.inputMode, maxLength: el.maxLength, className:String(el.className)}))), null, 2));
+console.log('buttons', JSON.stringify(await page.locator('button').evaluateAll(btns=>btns.map((el,i)=>({i,text:el.innerText,type:el.type,disabled:el.disabled,visible:!!(el.offsetWidth||el.offsetHeight||el.getClientRects().length),className:String(el.className)}))), null, 2));
+await browser.close();
