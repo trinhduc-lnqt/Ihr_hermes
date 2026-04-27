@@ -14,7 +14,7 @@ import {
 import { assertBotConfig, config } from "./config.js";
 import { cancelHermesOtpSession, formatWorkScheduleDetail, formatWorkScheduleResult, formatWorkScheduleSummaryLine, getRelativeWorkScheduleDate, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
-import { deleteHermesAccount, deleteUserAccount, getAllUserAccounts, getHermesAccount, getUserAccount, saveHermesAccount, saveUserAccount, updateSalaryMonitorState } from "./store.js";
+import { clearHermesSession, deleteHermesAccount, deleteUserAccount, getAllUserAccounts, getHermesAccount, getUserAccount, saveHermesAccount, saveHermesSession, saveUserAccount, updateSalaryMonitorState } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
 
 import { calculateSuggestedMinutes } from "./timeUtil.js";
@@ -1166,18 +1166,27 @@ async function showWorkSchedule(ctx, date = new Date()) {
   const result = await enqueue(() => getWorkScheduleByDay({
     username: account.hermesUsername,
     password: account.hermesPassword,
-    date
+    date,
+    storageState: account.hermesSession || null
   }));
+
+  if (result.sessionExpired) {
+    await clearHermesSession(ctx.chat.id);
+  }
 
   if (result.otpRequired) {
     pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_otp", date });
-    await ctx.reply("Hermes đang yêu cầu OTP. Sếp gửi mã OTP mới nhất vào tin nhắn tiếp theo, em sẽ lấy lịch ngay trong phiên này. /cancel để huỷ.");
+    await ctx.reply("Phiên Hermes đã hết hạn nên Hermes yêu cầu OTP lại. Sếp gửi mã OTP mới nhất, em sẽ xác nhận rồi lưu phiên để lần sau không phải nhập nữa. /cancel để huỷ.");
     return;
   }
 
   if (!result.ok) {
     await ctx.reply(`Không lấy được lịch làm việc.\n${String(result.message || "Lỗi không xác định").slice(0, 700)}`, hermesKeyboard());
     return;
+  }
+
+  if (result.storageState) {
+    await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: result.storageState });
   }
 
   const cacheKey = rememberWorkSchedule(ctx, result);
@@ -1644,6 +1653,9 @@ bot.on("text", async (ctx, next) => {
     if (!result.ok) {
       await ctx.reply(`Xác nhận OTP/lấy lịch lỗi: ${result.message}`, hermesKeyboard());
       return;
+    }
+    if (result.storageState) {
+      await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: result.storageState });
     }
     const cacheKey = rememberWorkSchedule(ctx, result);
     await ctx.reply(formatWorkScheduleResult(result), workScheduleKeyboard(result, cacheKey));

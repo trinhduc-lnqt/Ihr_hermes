@@ -669,17 +669,23 @@ function normalizeScheduleEntriesFromApi(apiResponses, targetDate) {
   return rawItems.map((item, index) => buildScheduleEntry(item, targetDateText, index));
 }
 
-async function loginHermesPage({ username, password }) {
+async function createHermesBrowserContext(storageState = null) {
   const browser = await chromium.launch({ headless: config.headless });
   const context = await browser.newContext({
     ignoreHTTPSErrors: true,
     locale: config.locale,
     timezoneId: config.timezoneId,
-    viewport: { width: 1365, height: 900 }
+    viewport: { width: 1365, height: 900 },
+    ...(storageState ? { storageState } : {})
   });
   const page = await context.newPage();
   page.setDefaultTimeout(config.timeoutMs);
   const apiResponses = createApiCapture(page);
+  return { browser, context, page, apiResponses };
+}
+
+async function loginHermesPage({ username, password }) {
+  const { browser, context, page, apiResponses } = await createHermesBrowserContext();
 
   await page.goto(config.hermesLoginUrl, { waitUntil: "domcontentloaded", timeout: config.timeoutMs });
   await page.waitForSelector("input", { state: "visible", timeout: config.timeoutMs });
@@ -716,6 +722,10 @@ async function readScheduleFromLoggedInPage(page, apiResponses, targetDate) {
   await page.goto(scheduleUrl, { waitUntil: "domcontentloaded", timeout: config.timeoutMs }).catch(() => {});
   await page.waitForTimeout(7000);
 
+  if (await hasVisibleOtpInput(page) || !(await isLoggedIn(page))) {
+    return { ok: false, sessionExpired: true, message: "Phiên Hermes đã hết hạn hoặc bị yêu cầu đăng nhập lại." };
+  }
+
   const apiUrl = buildScheduleUrl(targetDate);
   const fetched = await page.evaluate(async (url) => {
     const response = await fetch(url, { credentials: "include" });
@@ -723,6 +733,9 @@ async function readScheduleFromLoggedInPage(page, apiResponses, targetDate) {
   }, apiUrl).catch(() => null);
   if (fetched) {
     apiResponses.push({ url: apiUrl, method: "GET", status: fetched.status, requestBody: "", body: fetched.body });
+    if ([401, 403].includes(fetched.status) || /login|unauthori[sz]ed|otp|forbidden/i.test(fetched.body || "")) {
+      return { ok: false, sessionExpired: true, message: "Phiên Hermes đã hết hạn hoặc API yêu cầu đăng nhập lại." };
+    }
   }
 
   let entries = normalizeScheduleEntriesFromApi(apiResponses, targetDate);
@@ -848,18 +861,43 @@ export function formatWorkScheduleResult(result) {
   return lines.join("\n");
 }
 
-export async function getWorkScheduleByDay({ username, password, date = new Date() }) {
+export async function getWorkScheduleByDay({ username, password, date = new Date(), storageState = null }) {
   if (!config.hermesLoginUrl) {
     return { ok: false, message: "Chua cau hinh HERMES_LOGIN_URL." };
   }
 
+  if (storageState) {
+    const session = await createHermesBrowserContext(storageState);
+    try {
+      const result = await readScheduleFromLoggedInPage(session.page, session.apiResponses, date);
+      if (result.ok) {
+        return {
+          ...result,
+          reusedSession: true,
+          storageState: await session.context.storageState().catch(() => storageState)
+        };
+      }
+      if (!result.sessionExpired) {
+        return result;
+      }
+    } catch (error) {
+      // Stored cookies can be stale/corrupt. Fall through to full login below.
+    } finally {
+      await session.browser.close().catch(() => {});
+    }
+  }
+
   const login = await loginHermesPage({ username, password });
   if (!login.ok) {
-    return login;
+    return { ...login, sessionExpired: Boolean(storageState) || login.otpRequired };
   }
 
   try {
-    return await readScheduleFromLoggedInPage(login.page, login.apiResponses, date);
+    const result = await readScheduleFromLoggedInPage(login.page, login.apiResponses, date);
+    return {
+      ...result,
+      storageState: result.ok ? await login.context.storageState().catch(() => null) : null
+    };
   } catch (error) {
     return { ok: false, message: error.message || "Khong lay duoc lich lam viec Hermes." };
   } finally {
@@ -893,7 +931,11 @@ export async function submitHermesOtpAndGetWorkSchedule(otp, date = new Date()) 
       return { ok: false, message: "Da gui OTP nhung Hermes chua vao duoc trang sau dang nhap." };
     }
 
-    return await readScheduleFromLoggedInPage(page, session.apiResponses || [], date);
+    const result = await readScheduleFromLoggedInPage(page, session.apiResponses || [], date);
+    return {
+      ...result,
+      storageState: result.ok ? await session.context.storageState().catch(() => null) : null
+    };
   } catch (error) {
     return { ok: false, message: error.message || "Khong xac nhan duoc OTP Hermes." };
   } finally {

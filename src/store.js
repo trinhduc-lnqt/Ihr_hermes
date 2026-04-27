@@ -70,6 +70,32 @@ export async function saveHermesAccount({ secret, chatId, telegramUser, hermesUs
   return data.users[String(chatId)];
 }
 
+export async function saveHermesSession({ secret, chatId, storageState, expiresAt = null }) {
+  const data = await loadRawData(hermesUsersFile);
+  const key = String(chatId);
+  if (!data.users[key]) {
+    return false;
+  }
+  data.users[key].hermesSession = encryptText(secret, JSON.stringify(storageState || {}));
+  data.users[key].hermesSessionSavedAt = new Date().toISOString();
+  data.users[key].hermesSessionExpiresAt = expiresAt;
+  await saveRawData(hermesUsersFile, data);
+  return true;
+}
+
+export async function clearHermesSession(chatId) {
+  const data = await loadRawData(hermesUsersFile);
+  const key = String(chatId);
+  if (!data.users[key]) {
+    return false;
+  }
+  delete data.users[key].hermesSession;
+  delete data.users[key].hermesSessionSavedAt;
+  delete data.users[key].hermesSessionExpiresAt;
+  await saveRawData(hermesUsersFile, data);
+  return true;
+}
+
 export async function getUserAccount({ secret, chatId }) {
   const data = await loadRawData(ihrUsersFile);
   const record = data.users[String(chatId)];
@@ -90,9 +116,18 @@ export async function getHermesAccount({ secret, chatId }) {
     return null;
   }
   const { ihrUsername, ihrPassword, salaryMonitorState, ...hermesRecord } = record;
+  let hermesSession = null;
+  if (record.hermesSession) {
+    try {
+      hermesSession = JSON.parse(decryptText(secret, record.hermesSession));
+    } catch {
+      hermesSession = null;
+    }
+  }
   return {
     ...hermesRecord,
-    hermesPassword: record.hermesPassword ? decryptText(secret, record.hermesPassword) : ""
+    hermesPassword: record.hermesPassword ? decryptText(secret, record.hermesPassword) : "",
+    hermesSession
   };
 }
 
@@ -148,9 +183,18 @@ export async function getAllHermesAccounts({ secret }) {
   const data = await loadRawData(hermesUsersFile);
   return Object.values(data.users || {}).map((record) => {
     const { ihrUsername, ihrPassword, salaryMonitorState, ...hermesRecord } = record;
+    let hermesSession = null;
+    if (record.hermesSession) {
+      try {
+        hermesSession = JSON.parse(decryptText(secret, record.hermesSession));
+      } catch {
+        hermesSession = null;
+      }
+    }
     return {
       ...hermesRecord,
-      hermesPassword: record.hermesPassword ? decryptText(secret, record.hermesPassword) : ""
+      hermesPassword: record.hermesPassword ? decryptText(secret, record.hermesPassword) : "",
+      hermesSession
     };
   });
 }
