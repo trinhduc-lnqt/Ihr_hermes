@@ -170,6 +170,26 @@ function formatHermesAccountStatus(account) {
   ].join("\n");
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function formatWeekScheduleEntryHtml(entry, index) {
+  const summary = String(formatWorkScheduleSummaryLine(entry) || "").trim();
+  const link = firstValidScheduleLink(entry);
+  const ticket = String(entry?.ticket || "").trim();
+
+  if (!link || !ticket || !summary.includes(ticket)) {
+    return `${index}. ${escapeHtml(summary)}`;
+  }
+
+  const linkedTicket = `<a href="${escapeHtml(link)}">${escapeHtml(ticket)}</a>`;
+  return `${index}. ${escapeHtml(summary).replace(escapeHtml(ticket), linkedTicket)}`;
+}
+
 function formatWeekScheduleResult(results, checkedAt = new Date()) {
   const checkedLabel = new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "short",
@@ -178,7 +198,7 @@ function formatWeekScheduleResult(results, checkedAt = new Date()) {
   }).format(checkedAt);
   const lines = [
     "🗓️ <b>Lịch cả tuần</b>",
-    `⏱ <b>Kiểm tra lúc:</b> ${checkedLabel}`,
+    `⏱ <b>Kiểm tra lúc:</b> ${escapeHtml(checkedLabel)}`,
     ""
   ];
 
@@ -191,17 +211,17 @@ function formatWeekScheduleResult(results, checkedAt = new Date()) {
       year: "numeric",
       timeZone: config.timezoneId
     }).format(target);
-    lines.push(`📅 <b>${label}</b>`);
+    lines.push(`📅 <b>${escapeHtml(label)}</b>`);
     if (!result.entries?.length) {
       lines.push("- Không có lịch");
       lines.push("");
       continue;
     }
     for (const [index, entry] of result.entries.slice(0, 10).entries()) {
-      lines.push(`${index + 1}. ${formatWorkScheduleSummaryLine(entry)}`);
+      lines.push(formatWeekScheduleEntryHtml(entry, index + 1));
     }
     if (result.entries.length > 10) {
-      lines.push(`... và ${result.entries.length - 10} lịch nữa`);
+      lines.push(`... và ${escapeHtml(result.entries.length - 10)} lịch nữa`);
     }
     lines.push("");
   }
