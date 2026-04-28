@@ -562,8 +562,6 @@ function getDirectScheduleDateValues(value) {
   const dateKeys = new Set([
     "starttime",
     "endtime",
-    "deploymenttime",
-    "estdeployendtime",
     "workingdate",
     "workdate",
     "scheduledate",
@@ -573,12 +571,6 @@ function getDirectScheduleDateValues(value) {
   for (const [key, child] of Object.entries(value)) {
     if (child === null || child === undefined || typeof child === "object") continue;
     if (dateKeys.has(key.toLowerCase())) values.push(String(child));
-  }
-  const order = value.requestOrder && typeof value.requestOrder === "object" ? value.requestOrder : null;
-  if (order) {
-    for (const key of ["deploymentTime", "estDeployEndTime"]) {
-      if (order[key]) values.push(String(order[key]));
-    }
   }
   return values;
 }
