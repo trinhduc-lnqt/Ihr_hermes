@@ -1293,20 +1293,22 @@ function compactLines(lines) {
 
 function formatRequestOrderProductsHtml(details = [], devices = []) {
   if (!Array.isArray(details) || !details.length) return "---";
-  return details.slice(0, 8).map((item, index) => {
+  return details.slice(0, 5).map((item, index) => {
     const serial = Array.isArray(devices)
       ? devices.find((device) => device?.SKU && item?.SKU && device.SKU === item.SKU)?.serial
       : "";
     const suffix = [
-      item?.serviceCode ? `(${item.serviceCode})` : "",
-      item?.SKU ? `SKU: ${item.SKU}` : "",
-      serial ? `Serial: ${serial}` : ""
+      item?.serviceCode ? item.serviceCode : "",
+      item?.SKU ? `SKU ${item.SKU}` : "",
+      serial ? `Serial ${serial}` : ""
     ].filter(Boolean).join(" | ");
-    return compactLines([
-      `<b>${index + 1}. ${htmlValue(item?.serviceName)}</b>${suffix ? ` - ${escapeHtml(suffix)}` : ""}`,
-      `   Giá: ${htmlMoney(coalesce(item?.salePrice, item?.orgPrice))} | SL: ${htmlValue(item?.quantity)} ${htmlValue(item?.serviceUnit)} | TT: ${htmlMoney(item?.amount)}`
-    ]);
+    return `• <b>${index + 1}. ${htmlValue(item?.serviceName)}</b>${suffix ? ` (${escapeHtml(suffix)})` : ""}`;
   }).join("\n");
+}
+
+function usefulText(value) {
+  const text = displayValue(value);
+  return text === "---" ? "" : text;
 }
 
 export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } = {}) {
@@ -1317,61 +1319,46 @@ export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } =
   }).format(checkedAt);
   const deploymentContact = order?.deploymentContact || {};
   const hubInfo = order?.hubInfo || {};
-  const saleText = [order?.saleName, order?.picSale].filter(Boolean).join(" | ") || "---";
   const hermesUrl = buildRequestOrderPageUrl(order?._id);
+  const customerName = usefulText(order?.customerName);
+  const storeName = usefulText(order?.storeName || hubInfo?.name);
+  const storeId = usefulText(order?.storeId || hubInfo?.storeId);
+  const address = usefulText(order?.deploymentAddress || order?.storeAddress || hubInfo?.address || order?.companyFullAddess);
+  const contactName = usefulText(deploymentContact?.name || order?.contactName);
+  const contactPhone = deploymentContact?.phone || order?.contactPhone;
+  const saleName = usefulText(order?.saleName);
+  const saleEmail = usefulText(order?.picSale);
+  const deployer = usefulText(order?.picSp);
+  const leader = usefulText(order?.picSpLdr);
+  const note = usefulText(order?.contractNote);
 
   return compactLines([
-    `📋 <b>CHI TIẾT PYC #${htmlValue(order?.roCode)}</b>`,
-    `⏱ ${htmlValue(checkedAtText)} | ${htmlLink("Mở Hermes", hermesUrl)}`,
+    `📋 <b>PYC #${htmlValue(order?.roCode)} — ${htmlValue(order?.productCode)}</b>`,
+    `${htmlValue(mapRequestOrderType(order?.type))} • ${htmlValue(mapDeployStatus(order?.spStatus))} • ${htmlLink("Mở Hermes", hermesUrl)}`,
+    `⏱ <i>${htmlValue(checkedAtText)}</i>`,
     "",
-    "<b>🔹 Tổng quan</b>",
-    htmlLine("Loại PYC", mapRequestOrderType(order?.type)),
-    htmlLine("Trạng thái", `${mapRequestOrderStatus(order?.status)} | TK: ${mapDeployStatus(order?.spStatus)}`),
-    htmlLine("Sản phẩm", order?.productCode),
-    htmlLine("Hợp đồng", order?.contractCode),
-    htmlLine("Đơn 3rd Party", order?.thirdPartyOrderCode),
+    "<b>📍 KHÁCH / ĐỊA ĐIỂM</b>",
+    customerName ? `<b>Khách:</b> ${htmlValue(customerName)}` : "",
+    storeName ? `<b>Cửa hàng:</b> ${htmlValue(storeName)}${storeId ? ` (${htmlValue(storeId)})` : ""}` : "",
+    address ? `<b>Địa chỉ:</b> ${htmlValue(address)}` : "",
+    order?.companyId ? `<b>Company ID:</b> <code>${htmlValue(order.companyId)}</code>` : "",
     "",
-    "<b>👤 Khách hàng / cửa hàng</b>",
-    htmlLine("Tên KH", order?.customerName),
-    htmlLine("Công ty", order?.contactCompany || order?.customerName),
-    htmlLine("Company ID", order?.companyId),
-    htmlLine("Cửa hàng", `${displayValue(order?.storeName || hubInfo?.name)} (${displayValue(order?.storeId || hubInfo?.storeId)})`),
-    htmlLine("Địa chỉ", order?.deploymentAddress || order?.storeAddress || hubInfo?.address || order?.companyFullAddess),
+    "<b>☎️ LIÊN HỆ</b>",
+    contactName || contactPhone ? `<b>Khách liên hệ:</b> ${htmlValue(contactName || "---")} | ${htmlPhone(contactPhone)}` : "",
+    saleName || saleEmail || order?.salePhone ? `<b>Sale:</b> ${htmlValue([saleName, saleEmail].filter(Boolean).join(" | ") || "---")}${order?.salePhone ? ` | ${htmlPhone(order.salePhone)}` : ""}` : "",
     "",
-    "<b>📞 Liên hệ</b>",
-    `<b>Sale:</b> ${htmlValue(saleText)}${order?.salePhone ? ` | ${htmlPhone(order.salePhone)}` : ""}`,
-    `<b>Người nhận:</b> ${htmlValue(order?.pickUpContactName)} | ${htmlPhone(order?.pickUpContactPhone)}`,
-    `<b>Liên hệ triển khai:</b> ${htmlValue(deploymentContact?.name || order?.contactName)} | ${htmlPhone(deploymentContact?.phone || order?.contactPhone)}`,
-    `<b>Đại diện:</b> ${htmlValue(order?.contactName)} | ${htmlPhone(order?.contactPhone)}`,
+    "<b>🛠 LỊCH TRIỂN KHAI</b>",
+    htmlLine("Thời gian", order?.deploymentTime),
+    htmlLine("Hình thức", order?.deployTechForm),
+    htmlLine("Người triển khai", deployer),
+    leader ? htmlLine("Leader", leader) : "",
+    order?.spAssignedAt ? htmlLine("Phân lịch", `${displayValue(order.spAssignedAt)} bởi ${displayValue(order.spAssignedBy)}`) : "",
     "",
-    "<b>🛠 Triển khai</b>",
-    htmlLine("Loại triển khai", order?.deployTechForm),
-    htmlLine("Bộ phận nhận", mapDeployType(order?.deploymentType)),
-    htmlLine("Team / Leader", `${displayValue(order?.picSpTeam)} / ${displayValue(order?.picSpLdr)}`),
-    htmlLine("Người triển khai", order?.picSp),
-    htmlLine("Dự kiến", order?.deploymentTime),
-    htmlLine("Phân lịch", `${displayValue(order?.spAssignedAt)} bởi ${displayValue(order?.spAssignedBy)}`),
-    htmlLine("Ghi chú", order?.contractNote),
+    "<b>📝 NỘI DUNG CẦN LÀM</b>",
+    note ? htmlValue(note) : "Không có ghi chú.",
     "",
-    "<b>📦 Giao nhận</b>",
-    htmlLine("Nhận tại", order?.pickUpAt),
-    htmlLine("Địa chỉ nhận", order?.pickUpAddress),
-    htmlLine("Dự kiến nhận", order?.deploymentTime),
-    htmlLine("Thanh toán", order?.deploymentSaleForm),
-    "",
-    "<b>💰 Dịch vụ / sản phẩm</b>",
-    formatRequestOrderProductsHtml(order?.details, order?.devices),
-    htmlLine("Tổng tiền thu", money(order?.amount)),
-    htmlLine("Đã thanh toán", money(order?.paymentAmount)),
-    htmlLine("Còn lại", money(order?.remainAmount)),
-    "",
-    "<b>🧾 Hợp đồng / thuế</b>",
-    htmlLine("MST", order?.companyTaxCode),
-    htmlLine("Email thuế", order?.companyTaxEmail),
-    htmlLine("Đại diện", `${displayValue(order?.contactName)} - ${displayValue(order?.contactTitle)}`),
-    `<b>SĐT đại diện:</b> ${htmlPhone(order?.contactPhone)}`,
-    htmlLine("Nguồn tạo", order?.creatorSource === "INTERNAL" ? "Nội bộ" : order?.creatorSource),
-    htmlLine("Role tạo", order?.creatorType === "SALE" ? "Sale" : order?.creatorType)
+    "<b>📦 DỊCH VỤ</b>",
+    formatRequestOrderProductsHtml(order?.details, order?.devices)
   ]);
 }
 
