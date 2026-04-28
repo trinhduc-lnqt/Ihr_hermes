@@ -1614,13 +1614,26 @@ export function getWorkScheduleTypeIcon(type = "") {
   return "📌";
 }
 
+function getScheduleShiftLabel(entry = {}) {
+  const explicitShift = String(entry?.shift || "").trim();
+  if (/sáng|sang/i.test(explicitShift)) return "ca sáng";
+  if (/chiều|chieu/i.test(explicitShift)) return "ca chiều";
+
+  const source = [entry?.time, entry?.raw?.startTime, entry?.raw?.requestOrder?.deploymentTime, entry?.text]
+    .filter(Boolean)
+    .join("\n");
+  const match = String(source).match(/(?:\d{4}-\d{2}-\d{2}[ T])?(\d{1,2}):(\d{2})(?::\d{2})?/);
+  if (!match) return "";
+  const hour = Number(match[1]);
+  if (!Number.isFinite(hour)) return "";
+  return hour < 12 ? "ca sáng" : "ca chiều";
+}
+
 export function formatWorkScheduleSummaryLine(entry) {
   const main = entry?.type || "Chưa xác định";
-  const icon = getWorkScheduleTypeIcon(main);
-  const extra = [entry?.shift, entry?.ticket, entry?.status]
-    .filter(Boolean)
-    .join(" — ");
-  return extra ? `${icon} ${main} — ${extra}` : `${icon} ${main}`;
+  const shift = getScheduleShiftLabel(entry);
+  const parts = [main, entry?.ticket, shift].filter(Boolean);
+  return parts.join(" - ");
 }
 
 export function formatWorkScheduleResult(result) {
@@ -1650,21 +1663,11 @@ export function formatWorkScheduleResult(result) {
   }
 
   lines.push(`Có ${result.entries.length} lịch:`);
-  const grouped = new Map();
-  for (const entry of result.entries) {
-    const key = entry.type || "Chưa xác định";
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key).push(entry);
-  }
+  lines.push("");
   let index = 1;
-  for (const [type, entries] of grouped.entries()) {
-    if (index > 20) break;
-    lines.push(`\n${getWorkScheduleTypeIcon(type)} ${type}:`);
-    for (const entry of entries) {
-      if (index > 20) break;
-      lines.push(`${index}. ${formatWorkScheduleSummaryLine(entry)}`);
-      index += 1;
-    }
+  for (const entry of result.entries.slice(0, 20)) {
+    lines.push(`${index}. ${formatWorkScheduleSummaryLine(entry)}`);
+    index += 1;
   }
   if (result.entries.length > 20) {
     lines.push(`... và ${result.entries.length - 20} lịch nữa.`);
