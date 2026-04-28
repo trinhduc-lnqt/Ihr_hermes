@@ -194,6 +194,8 @@ function hermesKeyboard() {
 }
 
 function firstValidScheduleLink(entry) {
+  const requestOrderId = getRequestOrderIdFromScheduleEntry(entry);
+  if (!requestOrderId) return "";
   return [entry?.link, ...(entry?.links || [])]
     .filter(Boolean)
     .find((link) => /^https?:\/\//i.test(String(link))) || "";
