@@ -1614,19 +1614,44 @@ export function getWorkScheduleTypeIcon(type = "") {
   return "📌";
 }
 
+function getScheduleTimeRangeHours(entry = {}) {
+  const candidates = [
+    [entry?.raw?.startTime, entry?.raw?.endTime],
+    [entry?.raw?.requestOrder?.deploymentTime, entry?.raw?.requestOrder?.estDeployEndTime]
+  ];
+  for (const [start, end] of candidates) {
+    const startHour = extractHourFromText(start);
+    const endHour = extractHourFromText(end);
+    if (startHour !== null || endHour !== null) return { startHour, endHour };
+  }
+
+  const source = [entry?.time, entry?.text].filter(Boolean).join("\n");
+  const matches = [...String(source).matchAll(/(?:\d{4}-\d{2}-\d{2}[ T])?(\d{1,2}):(\d{2})(?::\d{2})?/g)]
+    .map((match) => Number(match[1]))
+    .filter((hour) => Number.isFinite(hour));
+  if (!matches.length) return { startHour: null, endHour: null };
+  return { startHour: matches[0], endHour: matches[1] ?? null };
+}
+
+function extractHourFromText(value) {
+  const match = String(value || "").match(/(?:\d{4}-\d{2}-\d{2}[ T])?(\d{1,2}):(\d{2})(?::\d{2})?/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  return Number.isFinite(hour) ? hour : null;
+}
+
 function getScheduleShiftLabel(entry = {}) {
   const explicitShift = String(entry?.shift || "").trim();
+  if (/cả ngày|ca ngày|ca ngay|all day/i.test(explicitShift)) return "cả ngày";
   if (/sáng|sang/i.test(explicitShift)) return "ca sáng";
   if (/chiều|chieu/i.test(explicitShift)) return "ca chiều";
 
-  const source = [entry?.time, entry?.raw?.startTime, entry?.raw?.requestOrder?.deploymentTime, entry?.text]
-    .filter(Boolean)
-    .join("\n");
-  const match = String(source).match(/(?:\d{4}-\d{2}-\d{2}[ T])?(\d{1,2}):(\d{2})(?::\d{2})?/);
-  if (!match) return "";
-  const hour = Number(match[1]);
-  if (!Number.isFinite(hour)) return "";
-  return hour < 12 ? "ca sáng" : "ca chiều";
+  const { startHour, endHour } = getScheduleTimeRangeHours(entry);
+  if (startHour === null && endHour === null) return "";
+  if ((startHour ?? 0) < 12 && endHour !== null && endHour < 12) return "ca sáng";
+  if ((startHour ?? 0) >= 12 && (endHour === null || endHour >= 12)) return "ca chiều";
+  if ((startHour ?? 0) < 12 && (endHour === null || endHour >= 12)) return "cả ngày";
+  return "ca chiều";
 }
 
 export function formatWorkScheduleSummaryLine(entry) {
