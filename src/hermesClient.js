@@ -549,6 +549,41 @@ function valueContainsTargetDate(value, targetDateText) {
   return Object.values(value).some((child) => valueContainsTargetDate(child, targetDateText));
 }
 
+function getDirectScheduleDateValues(value) {
+  if (!isPlainObject(value)) return [];
+  const dateKeys = new Set([
+    "starttime",
+    "endtime",
+    "deploymenttime",
+    "estdeployendtime",
+    "workingdate",
+    "workdate",
+    "scheduledate",
+    "date"
+  ]);
+  const values = [];
+  for (const [key, child] of Object.entries(value)) {
+    if (child === null || child === undefined || typeof child === "object") continue;
+    if (dateKeys.has(key.toLowerCase())) values.push(String(child));
+  }
+  const order = value.requestOrder && typeof value.requestOrder === "object" ? value.requestOrder : null;
+  if (order) {
+    for (const key of ["deploymentTime", "estDeployEndTime"]) {
+      if (order[key]) values.push(String(order[key]));
+    }
+  }
+  return values;
+}
+
+function isScheduleItemOnTargetDate(value, targetDateText) {
+  return getDirectScheduleDateValues(value).some((item) => isSameHermesDay(item, targetDateText));
+}
+
+function hasNestedScheduleCollection(value) {
+  if (!isPlainObject(value)) return false;
+  return Object.values(value).some((child) => Array.isArray(child) && child.some((item) => isPlainObject(item) && objectHasDirectScheduleSignal(item)));
+}
+
 function collectScheduleItems(value, targetDateText, output = [], depth = 0) {
   if (!value || typeof value !== "object") {
     return output;
@@ -556,11 +591,11 @@ function collectScheduleItems(value, targetDateText, output = [], depth = 0) {
 
   if (Array.isArray(value)) {
     const directMatches = value.filter((item) => {
-      if (!isPlainObject(item)) return false;
+      if (!isPlainObject(item) || hasNestedScheduleCollection(item)) return false;
       const text = JSON.stringify(item);
-      return valueContainsTargetDate(item, targetDateText)
+      return isScheduleItemOnTargetDate(item, targetDateText)
         && objectHasDirectScheduleSignal(item)
-        && /#\d{5,}|Lịch trực|Lich truc|Nghỉ|Nghi|Đã phân lịch|Da phan lich|Tạm dừng|Tam dung|FABI|iPOS|CRM/i.test(text);
+        && /#\d{5,}|Lịch trực|Lich truc|Nghỉ|Nghi|Đã phân lịch|Da phan lich|Tạm dừng|Tam dung|FABI|iPOS|CRM|ONSITE|DEPLOY|BUSY/i.test(text);
     });
     if (directMatches.length) {
       output.push(...directMatches);
@@ -573,9 +608,9 @@ function collectScheduleItems(value, targetDateText, output = [], depth = 0) {
   }
 
   const text = JSON.stringify(value);
-  const hasTargetDate = valueContainsTargetDate(value, targetDateText);
-  const hasUsefulScheduleSignal = /#\d{5,}|Lịch trực|Lich truc|Nghỉ|Nghi|Đã phân lịch|Da phan lich|Tạm dừng|Tam dung|FABI|iPOS|CRM/i.test(text);
-  if (hasTargetDate && hasUsefulScheduleSignal && objectHasDirectScheduleSignal(value)) {
+  const hasTargetDate = isScheduleItemOnTargetDate(value, targetDateText);
+  const hasUsefulScheduleSignal = /#\d{5,}|Lịch trực|Lich truc|Nghỉ|Nghi|Đã phân lịch|Da phan lich|Tạm dừng|Tam dung|FABI|iPOS|CRM|ONSITE|DEPLOY|BUSY/i.test(text);
+  if (hasTargetDate && hasUsefulScheduleSignal && objectHasDirectScheduleSignal(value) && !hasNestedScheduleCollection(value)) {
     output.push(value);
     return output;
   }
@@ -1062,7 +1097,7 @@ function normalizeScheduleEntriesFromApi(apiResponses, targetDate, viewer = make
     }
     const roots = parseScheduleResponse(response.body);
     const rawItems = collectScheduleItems(roots, targetDateText)
-      .filter((item) => isSameHermesDay(item?.startTime, targetDateText) || isSameHermesDay(item?.endTime, targetDateText) || valueContainsTargetDate(item, targetDateText))
+      .filter((item) => isScheduleItemOnTargetDate(item, targetDateText))
       .filter((item) => isScheduleEntryForViewer(item, viewer));
     if (rawItems.length) {
       return rawItems.map((item, index) => buildScheduleEntry(item, targetDateText, index));
@@ -1546,12 +1581,25 @@ export function formatWorkScheduleDetail(entry, result = {}) {
   return lines.join("\n");
 }
 
+export function getWorkScheduleTypeIcon(type = "") {
+  const text = String(type || "").toLowerCase();
+  if (/trực|truc|busy/.test(text)) return "📞";
+  if (/onsite/.test(text)) return "📍";
+  if (/triển khai thêm|trien khai them/.test(text)) return "➕";
+  if (/triển khai|trien khai|deploy/.test(text)) return "🚀";
+  if (/hỗ trợ tiếp|ho tro tiep|further/.test(text)) return "🔁";
+  if (/bảo trì|bao tri|maint/.test(text)) return "🛠";
+  if (/nghỉ|nghi|leave|off/.test(text)) return "🏖";
+  return "📌";
+}
+
 export function formatWorkScheduleSummaryLine(entry) {
   const main = entry?.type || "Lịch làm việc";
+  const icon = getWorkScheduleTypeIcon(main);
   const extra = [entry?.shift, entry?.ticket, entry?.status]
     .filter(Boolean)
     .join(" — ");
-  return extra ? `${main} — ${extra}` : main;
+  return extra ? `${icon} ${main} — ${extra}` : `${icon} ${main}`;
 }
 
 export function formatWorkScheduleResult(result) {
@@ -1590,11 +1638,10 @@ export function formatWorkScheduleResult(result) {
   let index = 1;
   for (const [type, entries] of grouped.entries()) {
     if (index > 20) break;
-    lines.push(`\n${type}:`);
+    lines.push(`\n${getWorkScheduleTypeIcon(type)} ${type}:`);
     for (const entry of entries) {
       if (index > 20) break;
-      const linkHint = entry.links?.length ? " 🔗" : "";
-      lines.push(`${index}. ${formatWorkScheduleSummaryLine(entry)}${linkHint}`);
+      lines.push(`${index}. ${formatWorkScheduleSummaryLine(entry)}`);
       index += 1;
     }
   }

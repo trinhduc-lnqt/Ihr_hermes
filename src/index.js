@@ -193,13 +193,22 @@ function hermesKeyboard() {
   ]);
 }
 
+function firstValidScheduleLink(entry) {
+  return [entry?.link, ...(entry?.links || [])]
+    .filter(Boolean)
+    .find((link) => /^https?:\/\//i.test(String(link))) || "";
+}
+
 function workScheduleKeyboard(result, cacheKey) {
   const rows = [];
   const entries = result?.entries || [];
   for (let index = 0; index < Math.min(entries.length, 10); index += 1) {
     const entry = entries[index];
     const label = formatWorkScheduleSummaryLine(entry).slice(0, 48);
-    rows.push([Markup.button.callback(`🔎 ${index + 1}. ${label}`, `action:hermes_work_detail:${cacheKey}:${index}`)]);
+    const row = [Markup.button.callback(`${index + 1}. ${label}`, `action:hermes_work_detail:${cacheKey}:${index}`)];
+    const link = firstValidScheduleLink(entry);
+    if (link) row.push(Markup.button.url("🔗 Mở", link));
+    rows.push(row);
   }
   rows.push([
     Markup.button.callback("⬅️ Ngày trước", `action:hermes_work_date:${result.targetDate}:-1`),
