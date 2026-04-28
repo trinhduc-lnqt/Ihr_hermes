@@ -155,15 +155,7 @@ async function isAllowedUser(ctx) {
   return isAuthorizedTelegramId(getTelegramId(ctx));
 }
 
-function keyboard() {
-  const rows = [[Markup.button.callback(UI.ihrMenu, "action:ihr_menu")]];
-  if (config.enableHermes) {
-    rows.push([Markup.button.callback(UI.hermesMenu, "action:hermes_menu")]);
-  }
-  return Markup.inlineKeyboard(rows);
-}
-
-function ihrKeyboard() {
+function buildIhrKeyboardRows({ includeBack = true } = {}) {
   const rows = [
     [Markup.button.callback(UI.checkInReason, "action:checkin_reason"), Markup.button.callback(UI.checkOut, "action:checkout")],
     [Markup.button.callback(UI.status, "action:status"), Markup.button.callback(UI.salary, "action:salary")],
@@ -179,8 +171,24 @@ function ihrKeyboard() {
     ]);
   }
 
-  rows.push([Markup.button.callback(UI.backToMenu, "action:menu")]);
-  return Markup.inlineKeyboard(rows);
+  if (includeBack) {
+    rows.push([Markup.button.callback(UI.backToMenu, "action:menu")]);
+  }
+  return rows;
+}
+
+function keyboard() {
+  if (!config.enableHermes) {
+    return Markup.inlineKeyboard(buildIhrKeyboardRows({ includeBack: false }));
+  }
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(UI.ihrMenu, "action:ihr_menu")],
+    [Markup.button.callback(UI.hermesMenu, "action:hermes_menu")]
+  ]);
+}
+
+function ihrKeyboard() {
+  return Markup.inlineKeyboard(buildIhrKeyboardRows({ includeBack: config.enableHermes }));
 }
 
 function hermesKeyboard() {
