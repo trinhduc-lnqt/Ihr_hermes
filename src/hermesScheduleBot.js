@@ -83,11 +83,14 @@ async function isAllowedUser(ctx) {
 
 function keyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback("📋 Lịch hôm nay", "action:hermes_work")],
-    [Markup.button.callback("📅 Hôm nay", "action:hermes_work_offset:0"), Markup.button.callback("➡️ Ngày mai", "action:hermes_work_offset:1")],
-    [Markup.button.callback("⬅️ Hôm qua", "action:hermes_work_offset:-1"), Markup.button.callback("📆 Ngày khác", "action:hermes_work_other")],
-    [Markup.button.callback("🔐 Tài khoản Hermes", "action:hermes_account")],
-    [Markup.button.callback("🗑️ Xoá TK Hermes", "action:delete_hermes")]
+    [
+      Markup.button.callback("⬅️ Hôm qua", "action:hermes_work_offset:-1"),
+      Markup.button.callback("📅 Hôm nay", "action:hermes_work_offset:0"),
+      Markup.button.callback("➡️ Ngày mai", "action:hermes_work_offset:1")
+    ],
+    [Markup.button.callback("🗓️ Lịch cả tuần", "action:hermes_work_week")],
+    [Markup.button.callback("🔐 Tài khoản Hermes", "action:hermes_account"), Markup.button.callback("🗑️ Xoá TK Hermes", "action:delete_hermes")],
+    [Markup.button.callback("👤 Check user hiện tại", "action:hermes_current_user")]
   ]);
 }
 
@@ -149,6 +152,61 @@ function formatDuration(durationMs) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   return [hours ? `${hours}h` : "", minutes || hours ? `${minutes}m` : "", `${seconds}s`].filter(Boolean).join(" ");
+}
+
+function formatHermesAccountStatus(account) {
+  if (!account?.hermesUsername) {
+    return [
+      "Chưa lưu tài khoản Hermes.",
+      "Gửi /sethermes để thêm tài khoản."
+    ].join("\n");
+  }
+  return [
+    `User Hermes đang lưu: ${account.hermesUsername}`,
+    `Telegram: ${account.telegramName || "(không có tên)"}${account.telegramUsername ? ` (@${account.telegramUsername})` : ""}`,
+    `Chat ID: ${account.chatId || "(không có)"}`,
+    `Cập nhật: ${account.updatedAt ? formatDateTime(new Date(account.updatedAt)) : "không rõ"}`,
+    `Session Hermes: ${account.hermesSession ? "đang có" : "chưa có"}`
+  ].join("\n");
+}
+
+function formatWeekScheduleResult(results, checkedAt = new Date()) {
+  const checkedLabel = new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "short",
+    timeStyle: "medium",
+    timeZone: config.timezoneId
+  }).format(checkedAt);
+  const lines = [
+    "🗓️ <b>Lịch cả tuần</b>",
+    `⏱ <b>Kiểm tra lúc:</b> ${checkedLabel}`,
+    ""
+  ];
+
+  for (const result of results) {
+    const target = parseWorkScheduleDateInput(result.targetDate) || new Date();
+    const label = new Intl.DateTimeFormat("vi-VN", {
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      timeZone: config.timezoneId
+    }).format(target);
+    lines.push(`📅 <b>${label}</b>`);
+    if (!result.entries?.length) {
+      lines.push("- Không có lịch");
+      lines.push("");
+      continue;
+    }
+    for (const [index, entry] of result.entries.slice(0, 10).entries()) {
+      lines.push(`${index + 1}. ${formatWorkScheduleSummaryLine(entry)}`);
+    }
+    if (result.entries.length > 10) {
+      lines.push(`... và ${result.entries.length - 10} lịch nữa`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }
 
 function helpText(telegramId) {
@@ -308,6 +366,46 @@ async function showWorkSchedule(ctx, date = new Date()) {
   });
 }
 
+async function showWorkScheduleWeek(ctx, date = new Date()) {
+  const account = await getHermesAccountOrReply(ctx);
+  if (!account) return;
+
+  await ctx.reply("Đang kiểm tra lịch cả tuần Hermes...");
+  const results = [];
+  let storageState = account.hermesSession || null;
+
+  for (let offset = 0; offset < 7; offset += 1) {
+    const targetDate = getRelativeWorkScheduleDate(offset, getRelativeWorkScheduleDate(-(new Date(date).getDay() || 7) + 1, date));
+    const result = await enqueue(() => getWorkScheduleByDay({
+      username: account.hermesUsername,
+      password: account.hermesPassword,
+      date: targetDate,
+      storageState
+    }));
+
+    if (result.sessionExpired) await clearHermesSession(ctx.chat.id);
+    if (result.otpRequired) {
+      pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_otp", date: targetDate });
+      await ctx.reply("Hermes yêu cầu OTP giữa lúc lấy lịch tuần. Sếp gửi mã OTP mới nhất rồi bấm lại giúp em. /cancel để huỷ.");
+      return;
+    }
+    if (!result.ok) {
+      await ctx.reply(`Không lấy được lịch tuần.\n${String(result.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
+      return;
+    }
+    if (result.storageState) {
+      storageState = result.storageState;
+      await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState });
+    }
+    results.push(result);
+  }
+
+  await ctx.reply(formatWeekScheduleResult(results), {
+    parse_mode: "HTML",
+    ...keyboard()
+  });
+}
+
 bot.use(guard);
 
 bot.start(async (ctx) => {
@@ -411,6 +509,11 @@ bot.action(/^action:hermes_work_date:(\d{4}-\d{2}-\d{2}):(-?\d+)$/, async (ctx) 
   await showWorkSchedule(ctx, getRelativeWorkScheduleDate(offset, baseDate || new Date()));
 });
 
+bot.action("action:hermes_work_week", async (ctx) => {
+  await ctx.answerCbQuery("Đang lấy lịch cả tuần...");
+  await showWorkScheduleWeek(ctx, new Date());
+});
+
 bot.action("action:hermes_work_other", async (ctx) => {
   await ctx.answerCbQuery();
   await askWorkScheduleOtherDate(ctx);
@@ -430,6 +533,12 @@ bot.action("action:hermes_account", async (ctx) => {
     "Mẫu:",
     "username Abc123@"
   ].join("\n"));
+});
+
+bot.action("action:hermes_current_user", async (ctx) => {
+  await ctx.answerCbQuery();
+  const account = await getHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
+  await ctx.reply(formatHermesAccountStatus(account), keyboard());
 });
 
 bot.action("action:delete_hermes", async (ctx) => {
