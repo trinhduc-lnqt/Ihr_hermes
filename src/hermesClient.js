@@ -1238,12 +1238,17 @@ function money(value) {
 
 function mapRequestOrderType(value) {
   const map = {
+    CONTRACT_ONLY: "Hợp đồng (KHÔNG TRIỂN KHAI)",
+    CONTRACT_AND_DEPLOY: "Hợp đồng & Triển khai",
     INVOICE_AND_DEPLOY: "Phiếu thu & Triển khai",
-    DEPLOY: "Phiếu triển khai",
-    DEPLOY_EXTRA: "Phiếu triển khai thêm",
-    FURTHER_DEPLOY: "Phiếu hỗ trợ tiếp",
+    ADJUST: "Phiếu hiệu chỉnh",
     MAINTENANCE: "Phiếu bảo trì",
-    ONSITE: "Phiếu onsite",
+    EXTRA_DEPLOY: "Phiếu triển khai thêm",
+    DEPLOY_EXTRA: "Phiếu triển khai thêm",
+    ONSITE: "Phiếu Onsite",
+    REMOTE: "Từ xa",
+    DEPLOY: "Phiếu triển khai",
+    FURTHER_DEPLOY: "Phiếu hỗ trợ tiếp",
     INVOICE: "Phiếu thu",
     CANCEL: "Hủy"
   };
@@ -1384,7 +1389,7 @@ function getScheduleRequestOrderTypeLabel(entry = {}) {
 }
 
 function isFullDayRequestOrderType(label = "") {
-  return /phiếu\s*triển\s*khai\s*thêm|phieu\s*trien\s*khai\s*them|deploy[_\s-]*extra/i.test(String(label || ""));
+  return /hợp\s*đồng\s*&\s*triển\s*khai|hop\s*dong\s*&\s*trien\s*khai|phiếu\s*thu\s*&\s*triển\s*khai|phieu\s*thu\s*&\s*trien\s*khai|phiếu\s*hiệu\s*chỉnh|phieu\s*hieu\s*chinh|phiếu\s*bảo\s*trì|phieu\s*bao\s*tri|phiếu\s*triển\s*khai\s*thêm|phieu\s*trien\s*khai\s*them|phiếu\s*onsite|phieu\s*onsite|contract[_\s-]*and[_\s-]*deploy|invoice[_\s-]*and[_\s-]*deploy|adjust|maintenance|extra[_\s-]*deploy|deploy[_\s-]*extra|onsite/i.test(String(label || ""));
 }
 
 export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } = {}) {
@@ -1457,7 +1462,7 @@ export function formatRequestOrderDetail(order, { checkedAt = new Date() } = {})
     "",
     `Mã hợp đồng: ${displayValue(order?.contractCode)}`,
     `Mã đơn 3rd Party: ${displayValue(order?.thirdPartyOrderCode)}`,
-    `Loại PYC: ${mapRequestOrderType(order?.type)}`,
+    `Loại PYC: ${getRequestOrderTypeLabel(order)}`,
     `Loại HĐ: ${mapContractType(order?.contractType)}`,
     `Sản phẩm: ${displayValue(order?.productCode)}`,
     "",
@@ -1676,7 +1681,10 @@ function getScheduleShiftLabel(entry = {}) {
   const { startHour, endHour } = getScheduleTimeRangeHours(entry);
   if (startHour === null && endHour === null) return "";
   const requestOrderType = getScheduleRequestOrderTypeLabel(entry);
-  if (isFullDayRequestOrderType(requestOrderType)) return "cả ngày";
+  if (requestOrderType) {
+    if (isFullDayRequestOrderType(requestOrderType)) return "cả ngày";
+    return (startHour ?? 0) < 12 ? "ca sáng" : "ca chiều";
+  }
   if ((startHour ?? 0) < 12 && endHour !== null && endHour < 12) return "ca sáng";
   if ((startHour ?? 0) >= 12 && (endHour === null || endHour >= 12)) return "ca chiều";
   if ((startHour ?? 0) < 12 && (endHour === null || endHour >= 12)) return "cả ngày";
