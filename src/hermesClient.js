@@ -1389,7 +1389,7 @@ function getScheduleRequestOrderTypeLabel(entry = {}) {
 }
 
 function isFullDayRequestOrderType(label = "") {
-  return /hợp\s*đồng\s*&\s*triển\s*khai|hop\s*dong\s*&\s*trien\s*khai|phiếu\s*thu\s*&\s*triển\s*khai|phieu\s*thu\s*&\s*trien\s*khai|phiếu\s*hiệu\s*chỉnh|phieu\s*hieu\s*chinh|phiếu\s*bảo\s*trì|phieu\s*bao\s*tri|phiếu\s*triển\s*khai\s*thêm|phieu\s*trien\s*khai\s*them|phiếu\s*onsite|phieu\s*onsite|contract[_\s-]*and[_\s-]*deploy|invoice[_\s-]*and[_\s-]*deploy|adjust|maintenance|extra[_\s-]*deploy|deploy[_\s-]*extra|onsite/i.test(String(label || ""));
+  return /hợp\s*đồng\s*&\s*triển\s*khai|hop\s*dong\s*&\s*trien\s*khai|phiếu\s*thu\s*&\s*triển\s*khai|phieu\s*thu\s*&\s*trien\s*khai|contract[_\s-]*and[_\s-]*deploy|invoice[_\s-]*and[_\s-]*deploy/i.test(String(label || ""));
 }
 
 export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } = {}) {
