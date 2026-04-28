@@ -1277,6 +1277,13 @@ function htmlLine(label, value) {
   return `<b>${escapeHtml(label)}:</b> ${htmlValue(value)}`;
 }
 
+function splitHermesDateTime(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/);
+  if (!match) return { date: displayValue(value), time: "---" };
+  return { date: match[1], time: match[2] };
+}
+
 function htmlPhone(value) {
   const text = displayValue(value);
   if (text === "---") return text;
@@ -1331,6 +1338,7 @@ export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } =
   const deployer = usefulText(order?.picSp);
   const leader = usefulText(order?.picSpLdr);
   const note = usefulText(order?.contractNote);
+  const deploymentTime = splitHermesDateTime(order?.deploymentTime);
 
   return compactLines([
     `📋 <b>PYC #${htmlValue(order?.roCode)} — ${htmlValue(order?.productCode)}</b>`,
@@ -1348,7 +1356,8 @@ export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } =
     saleName || saleEmail || order?.salePhone ? `<b>Sale:</b> ${htmlValue([saleName, saleEmail].filter(Boolean).join(" | ") || "---")}${order?.salePhone ? ` | ${htmlPhone(order.salePhone)}` : ""}` : "",
     "",
     "<b>🛠 LỊCH TRIỂN KHAI</b>",
-    htmlLine("Thời gian", order?.deploymentTime),
+    htmlLine("Ngày", deploymentTime.date),
+    htmlLine("Giờ", deploymentTime.time),
     htmlLine("Hình thức", order?.deployTechForm),
     htmlLine("Người triển khai", deployer),
     leader ? htmlLine("Leader", leader) : "",
