@@ -12,7 +12,7 @@ import {
   parseAdjMinuteInput
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
-import { cancelHermesOtpSession, formatRequestOrderDetail, formatRequestOrderDetailHtml, formatWorkScheduleDetail, formatWorkScheduleResult, formatWorkScheduleSummaryLine, getRelativeWorkScheduleDate, getRequestOrderDetailById, getRequestOrderIdFromScheduleEntry, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
+import { cancelHermesOtpSession, formatRequestOrderDetail, formatRequestOrderDetailHtml, formatWorkScheduleDetail, formatWorkScheduleNoteOnlyDetail, formatWorkScheduleResult, formatWorkScheduleSummaryLine, getRelativeWorkScheduleDate, getRequestOrderDetailById, getRequestOrderIdFromScheduleEntry, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
 import { clearHermesSession, deleteHermesAccount, deleteUserAccount, getAllUserAccounts, getHermesAccount, getUserAccount, saveHermesAccount, saveHermesSession, saveUserAccount, updateSalaryMonitorState } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
@@ -1428,7 +1428,10 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
   }
   const requestOrderId = getRequestOrderIdFromScheduleEntry(entry);
   if (!requestOrderId) {
-    await ctx.reply(formatWorkScheduleDetail(entry, cached.result), workScheduleDetailKeyboard(cached.result, cacheKey, entry));
+    await ctx.reply(formatWorkScheduleNoteOnlyDetail(entry, cached.result), {
+      parse_mode: "HTML",
+      ...workScheduleDetailKeyboard(cached.result, cacheKey, entry)
+    });
     return;
   }
 

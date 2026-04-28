@@ -1590,6 +1590,31 @@ function scheduleDetailValue(value, fallback = "Không có") {
   return text === "---" ? fallback : text;
 }
 
+function getScheduleNoteText(entry = {}) {
+  const note = usefulText(entry?.note);
+  if (note) return note;
+  const content = usefulText(getFieldValue(entry?.raw, ["note", "description", "content", "reason", "remark", "remarks", "memo"]));
+  if (content) return content;
+  return usefulText(entry?.text) || "Không có ghi chú.";
+}
+
+export function formatWorkScheduleNoteOnlyDetail(entry, result = {}) {
+  const target = fromHermesLocalDate(entry?.date || result.targetDate);
+  const targetLabel = new Intl.DateTimeFormat("vi-VN", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: config.timezoneId
+  }).format(target || new Date());
+  return compactLines([
+    `📝 <b>Ghi chú lịch ${htmlValue(formatWorkScheduleSummaryLine(entry))}</b>`,
+    `<b>Ngày:</b> ${htmlValue(targetLabel)}`,
+    "",
+    htmlValue(getScheduleNoteText(entry))
+  ]);
+}
+
 export function formatWorkScheduleDetail(entry, result = {}) {
   const checkedAt = new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "short",
