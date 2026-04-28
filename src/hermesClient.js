@@ -491,15 +491,23 @@ function buildRequestOrderPageUrl(id) {
 }
 
 function mapScheduleType(type) {
-  const value = String(type || "").toUpperCase();
+  const raw = String(type || "").trim();
+  const value = raw.toUpperCase();
+  if (["BUSY", "DUTY", "ON_DUTY", "SHIFT", "WORK_SHIFT"].includes(value)) return "Lịch trực";
   if (value === "ONSITE") return "Onsite";
   if (value === "MAINTENANCE") return "Bảo trì";
   if (value === "DEPLOY") return "Triển khai";
   if (value === "DEPLOY_EXTRA") return "Triển khai thêm";
   if (value === "FURTHER_DEPLOY") return "Hỗ trợ tiếp";
-  if (value === "BUSY") return "Lịch trực";
   if (value === "LEAVE" || value === "OFF") return "Nghỉ";
-  return type || "";
+  if (/lịch trực|lich truc|trực ca|truc ca|ca trực|ca truc/i.test(raw)) return "Lịch trực";
+  if (/onsite/i.test(raw)) return "Onsite";
+  if (/triển khai thêm|trien khai them/i.test(raw)) return "Triển khai thêm";
+  if (/triển khai|trien khai|deploy/i.test(raw)) return "Triển khai";
+  if (/hỗ trợ tiếp|ho tro tiep/i.test(raw)) return "Hỗ trợ tiếp";
+  if (/bảo trì|bao tri|maint/i.test(raw)) return "Bảo trì";
+  if (/nghỉ|nghi|leave|off/i.test(raw)) return "Nghỉ";
+  return "";
 }
 
 function parseScheduleResponse(text) {
@@ -990,14 +998,15 @@ function collectLinks(item) {
 }
 
 function detectScheduleType(text) {
-  if (/lịch trực|lich truc/i.test(text)) return "Lịch trực";
-  if (/nghỉ|nghi/i.test(text)) return "Nghỉ";
-  if (/hỗ trợ tiếp|ho tro tiep/i.test(text)) return "Hỗ trợ tiếp";
-  if (/onsite/i.test(text)) return "Onsite";
-  if (/bảo trì|bao tri/i.test(text)) return "Bảo trì";
-  if (/triển khai thêm|trien khai them/i.test(text)) return "Triển khai thêm";
-  if (/triển khai|trien khai/i.test(text)) return "Triển khai";
-  return "Lịch làm việc";
+  const value = String(text || "");
+  if (/\b(BUSY|DUTY|ON_DUTY|SHIFT|WORK_SHIFT)\b|lịch trực|lich truc|trực ca|truc ca|ca trực|ca truc/i.test(value)) return "Lịch trực";
+  if (/\b(LEAVE|OFF)\b|nghỉ|nghi/i.test(value)) return "Nghỉ";
+  if (/\bFURTHER_DEPLOY\b|hỗ trợ tiếp|ho tro tiep/i.test(value)) return "Hỗ trợ tiếp";
+  if (/\bONSITE\b|onsite/i.test(value)) return "Onsite";
+  if (/\bMAINTENANCE\b|bảo trì|bao tri/i.test(value)) return "Bảo trì";
+  if (/\bDEPLOY_EXTRA\b|triển khai thêm|trien khai them/i.test(value)) return "Triển khai thêm";
+  if (/\bDEPLOY\b|triển khai|trien khai/i.test(value)) return "Triển khai";
+  return "Chưa xác định";
 }
 
 function buildScheduleEntry(item, targetDateText, fallbackIndex = 0) {
@@ -1062,7 +1071,7 @@ function buildScheduleEntry(item, targetDateText, fallbackIndex = 0) {
     || (text.match(/\b(Sáng|Chiều|Tối)\b/i)?.[0] || "");
   const time = getFieldValue(item, ["startTime", "endTime", "fromTime", "toTime", "scheduleTime", "date", "workingDate", "workDate"]);
   const note = getFieldValue(item, ["note", "description", "content", "reason"]);
-  const type = getFieldValue(item, ["typeName", "scheduleType", "scheduleTypeName", "workType", "workTypeName", "taskType", "taskTypeName"]) || detectScheduleType(text);
+  const type = mapScheduleType(getFieldValue(item, ["type", "typeName", "scheduleType", "scheduleTypeName", "workType", "workTypeName", "taskType", "taskTypeName"])) || detectScheduleType(text);
   const id = getFieldValue(item, ["_id", "id", "scheduleId"]);
   const links = collectLinks(item);
   if (/^[a-f0-9]{24}$/i.test(id)) {
@@ -1594,7 +1603,7 @@ export function getWorkScheduleTypeIcon(type = "") {
 }
 
 export function formatWorkScheduleSummaryLine(entry) {
-  const main = entry?.type || "Lịch làm việc";
+  const main = entry?.type || "Chưa xác định";
   const icon = getWorkScheduleTypeIcon(main);
   const extra = [entry?.shift, entry?.ticket, entry?.status]
     .filter(Boolean)
@@ -1631,7 +1640,7 @@ export function formatWorkScheduleResult(result) {
   lines.push(`Có ${result.entries.length} lịch:`);
   const grouped = new Map();
   for (const entry of result.entries) {
-    const key = entry.type || "Lịch làm việc";
+    const key = entry.type || "Chưa xác định";
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key).push(entry);
   }
