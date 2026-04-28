@@ -772,7 +772,12 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
 
   return rawItems.map((item, index) => {
     const text = item.text;
+    const ids = Array.from(new Set(`${text}\n${item.title || ""}\n${item.html || ""}`.match(/\b[a-f0-9]{24}\b/gi) || []));
     const links = collectLinks(`${text}\n${item.title || ""}\n${item.html || ""}\n${(item.hrefs || []).join("\n")}`);
+    for (const id of ids) {
+      const pageUrl = buildRequestOrderPageUrl(id);
+      if (pageUrl && !links.includes(pageUrl)) links.push(pageUrl);
+    }
     const titleText = item.title || "";
     const type = typeFromClass(item.className, `${text}\n${titleText}`);
     const link = links[0] || "";
