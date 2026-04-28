@@ -1026,7 +1026,8 @@ function buildScheduleEntry(item, targetDateText, fallbackIndex = 0) {
     const status = mapDeployStatus(order.spStatus) || getFieldValue(item, ["statusName", "status", "scheduleStatus", "ticketStatus"]);
     const owner = String(item.employeeEmail || order.picSp || "").replace(/@ipos\.vn$/i, "");
     const note = order.contractNote || getFieldValue(item, ["note", "description", "content", "reason"]);
-    const type = mapScheduleType(item.type || order.type) || detectScheduleType(JSON.stringify(item));
+    const requestOrderType = getRequestOrderTypeLabel(order);
+    const type = requestOrderType || mapScheduleType(item.type || order.type) || detectScheduleType(JSON.stringify(item));
     const text = [
       `#${ticket} - ${product} ${status}`.trim(),
       order.customerName ? `Khách hàng: ${order.customerName}` : "",
@@ -1041,6 +1042,7 @@ function buildScheduleEntry(item, targetDateText, fallbackIndex = 0) {
       requestOrderId,
       ticket: ticket ? `#${ticket}` : "",
       type,
+      requestOrderType,
       status,
       product,
       customer,
@@ -1237,7 +1239,11 @@ function money(value) {
 function mapRequestOrderType(value) {
   const map = {
     INVOICE_AND_DEPLOY: "Phiếu thu & Triển khai",
-    DEPLOY: "Triển khai",
+    DEPLOY: "Phiếu triển khai",
+    DEPLOY_EXTRA: "Phiếu triển khai thêm",
+    FURTHER_DEPLOY: "Phiếu hỗ trợ tiếp",
+    MAINTENANCE: "Phiếu bảo trì",
+    ONSITE: "Phiếu onsite",
     INVOICE: "Phiếu thu",
     CANCEL: "Hủy"
   };
@@ -1362,6 +1368,25 @@ function usefulText(value) {
   return text === "---" ? "" : text;
 }
 
+function getRequestOrderTypeLabel(order = {}) {
+  return usefulText(order?.requestOrderTypeName)
+    || usefulText(order?.roTypeName)
+    || usefulText(order?.typeName)
+    || usefulText(order?.requestTypeName)
+    || usefulText(order?.requestOrderType)
+    || usefulText(mapRequestOrderType(order?.type));
+}
+
+function getScheduleRequestOrderTypeLabel(entry = {}) {
+  const order = entry?.raw?.requestOrder || {};
+  return usefulText(entry?.requestOrderType)
+    || getRequestOrderTypeLabel(order);
+}
+
+function isFullDayRequestOrderType(label = "") {
+  return /phiếu\s*triển\s*khai\s*thêm|phieu\s*trien\s*khai\s*them|deploy[_\s-]*extra/i.test(String(label || ""));
+}
+
 export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } = {}) {
   const checkedAtText = new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "short",
@@ -1383,10 +1408,11 @@ export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } =
   const leader = usefulText(order?.picSpLdr);
   const note = usefulText(order?.contractNote);
   const deploymentTime = splitHermesDateTime(order?.deploymentTime);
+  const requestOrderType = getRequestOrderTypeLabel(order);
 
   return compactLines([
     `📋 <b>PYC #${htmlValue(order?.roCode)} — ${htmlValue(order?.productCode)}</b>`,
-    `${htmlValue(mapRequestOrderType(order?.type))} • ${htmlValue(mapDeployStatus(order?.spStatus))} • ${htmlLink("Mở Hermes", hermesUrl)}`,
+    `${htmlValue(requestOrderType)} • ${htmlValue(mapDeployStatus(order?.spStatus))} • ${htmlLink("Mở Hermes", hermesUrl)}`,
     `⏱ <i>${htmlValue(checkedAtText)}</i>`,
     "",
     "<b>📍 KHÁCH / ĐỊA ĐIỂM</b>",
@@ -1400,6 +1426,7 @@ export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } =
     saleName || saleEmail || order?.salePhone ? `<b>Sale:</b> ${htmlValue([saleName, saleEmail].filter(Boolean).join(" | ") || "---")}${order?.salePhone ? ` | ${htmlPhone(order.salePhone)}` : ""}` : "",
     "",
     "<b>🛠 LỊCH TRIỂN KHAI</b>",
+    htmlLine("Loại PYC", requestOrderType),
     htmlLine("Ngày", deploymentTime.date),
     htmlLine("Giờ", deploymentTime.time),
     htmlLine("Hình thức", order?.deployTechForm),
@@ -1648,6 +1675,8 @@ function getScheduleShiftLabel(entry = {}) {
 
   const { startHour, endHour } = getScheduleTimeRangeHours(entry);
   if (startHour === null && endHour === null) return "";
+  const requestOrderType = getScheduleRequestOrderTypeLabel(entry);
+  if (isFullDayRequestOrderType(requestOrderType)) return "cả ngày";
   if ((startHour ?? 0) < 12 && endHour !== null && endHour < 12) return "ca sáng";
   if ((startHour ?? 0) >= 12 && (endHour === null || endHour >= 12)) return "ca chiều";
   if ((startHour ?? 0) < 12 && (endHour === null || endHour >= 12)) return "cả ngày";
@@ -1655,7 +1684,7 @@ function getScheduleShiftLabel(entry = {}) {
 }
 
 export function formatWorkScheduleSummaryLine(entry) {
-  const main = entry?.type || "Chưa xác định";
+  const main = getScheduleRequestOrderTypeLabel(entry) || entry?.type || "Chưa xác định";
   const shift = getScheduleShiftLabel(entry);
   const parts = [main, entry?.ticket, shift].filter(Boolean);
   return parts.join(" - ");
