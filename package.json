@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "bot": "node ./src/index.js",
+    "bot:hermes": "node ./src/hermesScheduleBot.js",
     "setup": "node ./scripts/setup.js",
     "clean:private": "node ./scripts/cleanup-private-data.js",
     "capture:checkin": "node ./src/captureCheckin.js",

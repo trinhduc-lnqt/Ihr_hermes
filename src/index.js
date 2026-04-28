@@ -156,10 +156,11 @@ async function isAllowedUser(ctx) {
 }
 
 function keyboard() {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback(UI.ihrMenu, "action:ihr_menu")],
-    [Markup.button.callback(UI.hermesMenu, "action:hermes_menu")]
-  ]);
+  const rows = [[Markup.button.callback(UI.ihrMenu, "action:ihr_menu")]];
+  if (config.enableHermes) {
+    rows.push([Markup.button.callback(UI.hermesMenu, "action:hermes_menu")]);
+  }
+  return Markup.inlineKeyboard(rows);
 }
 
 function ihrKeyboard() {
@@ -726,10 +727,17 @@ async function initializeRuntimeState() {
   startRuntimeMonitors();
 }
 
+function getActiveTelegramCommands() {
+  if (config.enableHermes) return telegramCommands;
+  const hermesCommands = new Set(["sethermes", "deletehermes", "lich"]);
+  return telegramCommands.filter((item) => !hermesCommands.has(item.command));
+}
+
 async function syncTelegramCommandMenu() {
   try {
-    await bot.telegram.setMyCommands(telegramCommands);
-    await bot.telegram.setMyCommands(telegramCommands, {
+    const commands = getActiveTelegramCommands();
+    await bot.telegram.setMyCommands(commands);
+    await bot.telegram.setMyCommands(commands, {
       scope: { type: "all_private_chats" }
     });
     await bot.telegram.setChatMenuButton({
@@ -811,6 +819,17 @@ async function guard(ctx, next) {
 }
 
 bot.use(guard);
+
+bot.use(async (ctx, next) => {
+  if (config.enableHermes) return next();
+  const text = ctx.message?.text?.trim() || "";
+  const data = ctx.callbackQuery?.data || "";
+  const isHermesCommand = /^\/(sethermes|deletehermes|lich|schedule|workschedule)(?:@\w+)?(?:\s|$)/i.test(text);
+  const isHermesAction = /^action:(hermes|delete_hermes)/.test(data);
+  if (!isHermesCommand && !isHermesAction) return next();
+  if (ctx.callbackQuery) await ctx.answerCbQuery("Hermes đã tách sang bot riêng.");
+  await ctx.reply("Phần lịch Hermes đã tách sang bot riêng rồi Sếp. Bot này chỉ giữ IHR/chấm công.", keyboard());
+});
 
 bot.start(async (ctx) => {
   const allowed = await isAllowedUser(ctx);

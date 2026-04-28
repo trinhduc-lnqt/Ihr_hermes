@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import path from "node:path";
 
-dotenv.config();
+dotenv.config({ path: process.env.ENV_FILE || ".env" });
 
 function toBoolean(value, fallback) {
   if (value === undefined || value === null || value === "") {
@@ -65,6 +65,7 @@ export const config = {
   timeoutMs: toNumber(process.env.ACTION_TIMEOUT_MS, 45000),
   transport: normalizeTransport(process.env.IHR_TRANSPORT),
   startupNotify: toBoolean(process.env.STARTUP_NOTIFY, true),
+  enableHermes: toBoolean(process.env.ENABLE_HERMES, true),
   ihrStatusCheckIntervalMinutes: toInteger(process.env.IHR_STATUS_CHECK_INTERVAL_MINUTES, 5),
   salaryCheckIntervalMinutes: toInteger(process.env.SALARY_CHECK_INTERVAL_MINUTES, 30),
   salaryNotifyCloseDay: toInteger(process.env.SALARY_NOTIFY_CLOSE_DAY, 10),
