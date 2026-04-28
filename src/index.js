@@ -54,7 +54,7 @@ const UI = {
   sendLocation: "📍 Gửi vị trí",
   openMaps: "🗺️ Mở Maps"
 };
-const telegramCommands = [
+const ihrTelegramCommands = [
   { command: "start", description: "Mo menu bot" },
   { command: "checkin", description: "Cham cong vao kem ly do" },
   { command: "checkout", description: "Cham cong ra kem ly do" },
@@ -63,11 +63,14 @@ const telegramCommands = [
   { command: "salary", description: "Xem bang luong thang hien tai" },
   { command: "account", description: "Xem tai khoan IHR" },
   { command: "setaccount", description: "Luu tai khoan IHR" },
-  { command: "sethermes", description: "Luu tai khoan Hermes" },
-  { command: "deletehermes", description: "Xoa tai khoan Hermes" },
-  { command: "lich", description: "Xem lich lam viec Hermes theo ngay" },
   { command: "cancel", description: "Huy thao tac dang doi" },
   { command: "cleanup", description: "Don file tam bang luong" }
+];
+
+const hermesTelegramCommands = [
+  { command: "sethermes", description: "Luu tai khoan Hermes" },
+  { command: "deletehermes", description: "Xoa tai khoan Hermes" },
+  { command: "lich", description: "Xem lich lam viec Hermes theo ngay" }
 ];
 
 let instanceLockServer = null;
@@ -736,14 +739,14 @@ async function initializeRuntimeState() {
 }
 
 function getActiveTelegramCommands() {
-  if (config.enableHermes) return telegramCommands;
-  const hermesCommands = new Set(["sethermes", "deletehermes", "lich"]);
-  return telegramCommands.filter((item) => !hermesCommands.has(item.command));
+  return config.enableHermes ? [...ihrTelegramCommands, ...hermesTelegramCommands] : ihrTelegramCommands;
 }
 
 async function syncTelegramCommandMenu() {
   try {
     const commands = getActiveTelegramCommands();
+    await bot.telegram.deleteMyCommands();
+    await bot.telegram.deleteMyCommands({ scope: { type: "all_private_chats" } });
     await bot.telegram.setMyCommands(commands);
     await bot.telegram.setMyCommands(commands, {
       scope: { type: "all_private_chats" }
