@@ -199,32 +199,40 @@ function firstValidScheduleLink(entry) {
     .find((link) => /^https?:\/\//i.test(String(link))) || "";
 }
 
+function compactButtonLabel(text, maxLength = 42) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
 function workScheduleKeyboard(result, cacheKey) {
   const rows = [];
   const entries = result?.entries || [];
   for (let index = 0; index < Math.min(entries.length, 10); index += 1) {
     const entry = entries[index];
-    const label = formatWorkScheduleSummaryLine(entry).slice(0, 48);
-    const row = [Markup.button.callback(`${index + 1}. ${label}`, `action:hermes_work_detail:${cacheKey}:${index}`)];
-    const link = firstValidScheduleLink(entry);
-    if (link) row.push(Markup.button.url("🔗 Mở", link));
-    rows.push(row);
+    const label = compactButtonLabel(formatWorkScheduleSummaryLine(entry));
+    rows.push([Markup.button.callback(`${index + 1}. ${label}`, `action:hermes_work_detail:${cacheKey}:${index}`)]);
   }
   rows.push([
-    Markup.button.callback("⬅️ Ngày trước", `action:hermes_work_date:${result.targetDate}:-1`),
-    Markup.button.callback("➡️ Ngày sau", `action:hermes_work_date:${result.targetDate}:1`)
+    Markup.button.callback("◀️ Trước", `action:hermes_work_date:${result.targetDate}:-1`),
+    Markup.button.callback("Sau ▶️", `action:hermes_work_date:${result.targetDate}:1`)
   ]);
-  rows.push([Markup.button.callback("📆 Ngày khác", "action:hermes_work_other")]);
-  rows.push([Markup.button.callback(UI.backToMenu, "action:hermes_menu")]);
+  rows.push([
+    Markup.button.callback("📆 Chọn ngày", "action:hermes_work_other"),
+    Markup.button.callback("⬅️ Menu Hermes", "action:hermes_menu")
+  ]);
   return Markup.inlineKeyboard(rows);
 }
 
-function workScheduleDetailKeyboard(result, cacheKey) {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback("⬅️ Về danh sách lịch", `action:hermes_work_list:${cacheKey}`)],
-    [Markup.button.callback("📆 Ngày khác", "action:hermes_work_other")],
-    [Markup.button.callback(UI.backToMenu, "action:hermes_menu")]
+function workScheduleDetailKeyboard(result, cacheKey, entry = null) {
+  const rows = [];
+  const link = firstValidScheduleLink(entry);
+  if (link) rows.push([Markup.button.url("🔗 Mở Hermes", link)]);
+  rows.push([Markup.button.callback("⬅️ Về danh sách lịch", `action:hermes_work_list:${cacheKey}`)]);
+  rows.push([
+    Markup.button.callback("📆 Chọn ngày", "action:hermes_work_other"),
+    Markup.button.callback("⬅️ Menu Hermes", "action:hermes_menu")
   ]);
+  return Markup.inlineKeyboard(rows);
 }
 
 function getMonthDateFromOffset(offset = 0, baseDate = new Date()) {
@@ -1417,7 +1425,7 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
   }
   const requestOrderId = getRequestOrderIdFromScheduleEntry(entry);
   if (!requestOrderId) {
-    await ctx.reply(formatWorkScheduleDetail(entry, cached.result), workScheduleDetailKeyboard(cached.result, cacheKey));
+    await ctx.reply(formatWorkScheduleDetail(entry, cached.result), workScheduleDetailKeyboard(cached.result, cacheKey, entry));
     return;
   }
 
@@ -1442,7 +1450,7 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
     return;
   }
   if (!detail.ok) {
-    await ctx.reply(`Không lấy được chi tiết PYC thật từ Hermes.\n${String(detail.message || "Lỗi không xác định").slice(0, 700)}`, workScheduleDetailKeyboard(cached.result, cacheKey));
+    await ctx.reply(`Không lấy được chi tiết PYC thật từ Hermes.\n${String(detail.message || "Lỗi không xác định").slice(0, 700)}`, workScheduleDetailKeyboard(cached.result, cacheKey, entry));
     return;
   }
   if (detail.storageState) {
@@ -1451,7 +1459,7 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
   await ctx.reply(formatRequestOrderDetailHtml(detail.order, { checkedAt: detail.checkedAt }), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
-    ...workScheduleDetailKeyboard(cached.result, cacheKey)
+    ...workScheduleDetailKeyboard(cached.result, cacheKey, entry)
   });
 });
 
