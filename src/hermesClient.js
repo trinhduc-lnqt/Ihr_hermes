@@ -1258,6 +1258,123 @@ function formatRequestOrderProducts(details = [], devices = []) {
   });
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function htmlValue(value) {
+  return escapeHtml(displayValue(value));
+}
+
+function htmlMoney(value) {
+  return escapeHtml(money(value));
+}
+
+function htmlLine(label, value) {
+  return `<b>${escapeHtml(label)}:</b> ${htmlValue(value)}`;
+}
+
+function htmlPhone(value) {
+  const text = displayValue(value);
+  if (text === "---") return text;
+  return `<code>${escapeHtml(text)}</code>`;
+}
+
+function htmlLink(label, url) {
+  return url ? `<a href="${escapeHtml(url)}">${escapeHtml(label)}</a>` : "Không có";
+}
+
+function compactLines(lines) {
+  return lines.filter((line) => line !== null && line !== undefined && String(line).trim() !== "").join("\n");
+}
+
+function formatRequestOrderProductsHtml(details = [], devices = []) {
+  if (!Array.isArray(details) || !details.length) return "---";
+  return details.slice(0, 8).map((item, index) => {
+    const serial = Array.isArray(devices)
+      ? devices.find((device) => device?.SKU && item?.SKU && device.SKU === item.SKU)?.serial
+      : "";
+    const suffix = [
+      item?.serviceCode ? `(${item.serviceCode})` : "",
+      item?.SKU ? `SKU: ${item.SKU}` : "",
+      serial ? `Serial: ${serial}` : ""
+    ].filter(Boolean).join(" | ");
+    return compactLines([
+      `<b>${index + 1}. ${htmlValue(item?.serviceName)}</b>${suffix ? ` - ${escapeHtml(suffix)}` : ""}`,
+      `   Giá: ${htmlMoney(coalesce(item?.salePrice, item?.orgPrice))} | SL: ${htmlValue(item?.quantity)} ${htmlValue(item?.serviceUnit)} | TT: ${htmlMoney(item?.amount)}`
+    ]);
+  }).join("\n");
+}
+
+export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } = {}) {
+  const checkedAtText = new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "short",
+    timeStyle: "medium",
+    timeZone: config.timezoneId
+  }).format(checkedAt);
+  const deploymentContact = order?.deploymentContact || {};
+  const hubInfo = order?.hubInfo || {};
+  const saleText = [order?.saleName, order?.picSale].filter(Boolean).join(" | ") || "---";
+  const hermesUrl = buildRequestOrderPageUrl(order?._id);
+
+  return compactLines([
+    `📋 <b>CHI TIẾT PYC #${htmlValue(order?.roCode)}</b>`,
+    `⏱ ${htmlValue(checkedAtText)} | ${htmlLink("Mở Hermes", hermesUrl)}`,
+    "",
+    "<b>🔹 Tổng quan</b>",
+    htmlLine("Loại PYC", mapRequestOrderType(order?.type)),
+    htmlLine("Trạng thái", `${mapRequestOrderStatus(order?.status)} | TK: ${mapDeployStatus(order?.spStatus)}`),
+    htmlLine("Sản phẩm", order?.productCode),
+    htmlLine("Hợp đồng", order?.contractCode),
+    htmlLine("Đơn 3rd Party", order?.thirdPartyOrderCode),
+    "",
+    "<b>👤 Khách hàng / cửa hàng</b>",
+    htmlLine("Tên KH", order?.customerName),
+    htmlLine("Công ty", order?.contactCompany || order?.customerName),
+    htmlLine("Company ID", order?.companyId),
+    htmlLine("Cửa hàng", `${displayValue(order?.storeName || hubInfo?.name)} (${displayValue(order?.storeId || hubInfo?.storeId)})`),
+    htmlLine("Địa chỉ", order?.deploymentAddress || order?.storeAddress || hubInfo?.address || order?.companyFullAddess),
+    "",
+    "<b>📞 Liên hệ</b>",
+    `<b>Sale:</b> ${htmlValue(saleText)}${order?.salePhone ? ` | ${htmlPhone(order.salePhone)}` : ""}`,
+    `<b>Người nhận:</b> ${htmlValue(order?.pickUpContactName)} | ${htmlPhone(order?.pickUpContactPhone)}`,
+    `<b>Liên hệ triển khai:</b> ${htmlValue(deploymentContact?.name || order?.contactName)} | ${htmlPhone(deploymentContact?.phone || order?.contactPhone)}`,
+    `<b>Đại diện:</b> ${htmlValue(order?.contactName)} | ${htmlPhone(order?.contactPhone)}`,
+    "",
+    "<b>🛠 Triển khai</b>",
+    htmlLine("Loại triển khai", order?.deployTechForm),
+    htmlLine("Bộ phận nhận", mapDeployType(order?.deploymentType)),
+    htmlLine("Team / Leader", `${displayValue(order?.picSpTeam)} / ${displayValue(order?.picSpLdr)}`),
+    htmlLine("Người triển khai", order?.picSp),
+    htmlLine("Dự kiến", order?.deploymentTime),
+    htmlLine("Phân lịch", `${displayValue(order?.spAssignedAt)} bởi ${displayValue(order?.spAssignedBy)}`),
+    htmlLine("Ghi chú", order?.contractNote),
+    "",
+    "<b>📦 Giao nhận</b>",
+    htmlLine("Nhận tại", order?.pickUpAt),
+    htmlLine("Địa chỉ nhận", order?.pickUpAddress),
+    htmlLine("Dự kiến nhận", order?.deploymentTime),
+    htmlLine("Thanh toán", order?.deploymentSaleForm),
+    "",
+    "<b>💰 Dịch vụ / sản phẩm</b>",
+    formatRequestOrderProductsHtml(order?.details, order?.devices),
+    htmlLine("Tổng tiền thu", money(order?.amount)),
+    htmlLine("Đã thanh toán", money(order?.paymentAmount)),
+    htmlLine("Còn lại", money(order?.remainAmount)),
+    "",
+    "<b>🧾 Hợp đồng / thuế</b>",
+    htmlLine("MST", order?.companyTaxCode),
+    htmlLine("Email thuế", order?.companyTaxEmail),
+    htmlLine("Đại diện", `${displayValue(order?.contactName)} - ${displayValue(order?.contactTitle)}`),
+    `<b>SĐT đại diện:</b> ${htmlPhone(order?.contactPhone)}`,
+    htmlLine("Nguồn tạo", order?.creatorSource === "INTERNAL" ? "Nội bộ" : order?.creatorSource),
+    htmlLine("Role tạo", order?.creatorType === "SALE" ? "Sale" : order?.creatorType)
+  ]);
+}
+
 export function formatRequestOrderDetail(order, { checkedAt = new Date() } = {}) {
   const checkedAtText = new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "short",

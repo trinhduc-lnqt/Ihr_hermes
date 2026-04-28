@@ -12,7 +12,7 @@ import {
   parseAdjMinuteInput
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
-import { cancelHermesOtpSession, formatRequestOrderDetail, formatWorkScheduleDetail, formatWorkScheduleResult, formatWorkScheduleSummaryLine, getRelativeWorkScheduleDate, getRequestOrderDetailById, getRequestOrderIdFromScheduleEntry, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
+import { cancelHermesOtpSession, formatRequestOrderDetail, formatRequestOrderDetailHtml, formatWorkScheduleDetail, formatWorkScheduleResult, formatWorkScheduleSummaryLine, getRelativeWorkScheduleDate, getRequestOrderDetailById, getRequestOrderIdFromScheduleEntry, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
 import { clearHermesSession, deleteHermesAccount, deleteUserAccount, getAllUserAccounts, getHermesAccount, getUserAccount, saveHermesAccount, saveHermesSession, saveUserAccount, updateSalaryMonitorState } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
@@ -1439,7 +1439,11 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
   if (detail.storageState) {
     await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: detail.storageState });
   }
-  await ctx.reply(formatRequestOrderDetail(detail.order, { checkedAt: detail.checkedAt }), workScheduleDetailKeyboard(cached.result, cacheKey));
+  await ctx.reply(formatRequestOrderDetailHtml(detail.order, { checkedAt: detail.checkedAt }), {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...workScheduleDetailKeyboard(cached.result, cacheKey)
+  });
 });
 
 bot.action(/^action:hermes_work_list:(.+)$/, async (ctx) => {
