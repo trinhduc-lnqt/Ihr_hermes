@@ -1207,7 +1207,10 @@ async function showWorkSchedule(ctx, date = new Date()) {
   }
 
   const cacheKey = rememberWorkSchedule(ctx, result);
-  await ctx.reply(formatWorkScheduleResult(result), workScheduleKeyboard(result, cacheKey));
+  await ctx.reply(formatWorkScheduleResult(result), {
+    parse_mode: "HTML",
+    ...workScheduleKeyboard(result, cacheKey)
+  });
 }
 
 async function handleDirectCommand(ctx, action) {
@@ -1471,7 +1474,10 @@ bot.action(/^action:hermes_work_list:(.+)$/, async (ctx) => {
     await ctx.reply("Dữ liệu lịch đã hết hạn. Sếp bấm lấy lịch lại nhé.", hermesKeyboard());
     return;
   }
-  await ctx.reply(formatWorkScheduleResult(cached.result), workScheduleKeyboard(cached.result, cacheKey));
+  await ctx.reply(formatWorkScheduleResult(cached.result), {
+    parse_mode: "HTML",
+    ...workScheduleKeyboard(cached.result, cacheKey)
+  });
 });
 
 bot.action("action:menu", async (ctx) => {
@@ -1712,7 +1718,10 @@ bot.on("text", async (ctx, next) => {
       await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: result.storageState });
     }
     const cacheKey = rememberWorkSchedule(ctx, result);
-    await ctx.reply(formatWorkScheduleResult(result), workScheduleKeyboard(result, cacheKey));
+    await ctx.reply(formatWorkScheduleResult(result), {
+      parse_mode: "HTML",
+      ...workScheduleKeyboard(result, cacheKey)
+    });
     return;
   }
 

@@ -1677,8 +1677,8 @@ export function formatWorkScheduleResult(result) {
   }).format(target || new Date());
 
   const lines = [
-    `📅 Lịch ngày ${targetLabel}`,
-    `Kiểm tra lúc: ${checkedAt}`,
+    `📅 <b>Lịch ngày ${htmlValue(targetLabel)}</b>`,
+    `⏱ <b>Kiểm tra lúc:</b> ${htmlValue(checkedAt)}`,
     ""
   ];
 
@@ -1687,18 +1687,18 @@ export function formatWorkScheduleResult(result) {
     return lines.join("\n");
   }
 
-  lines.push(`Có ${result.entries.length} lịch:`);
+  lines.push(`📌 <b>Có ${htmlValue(result.entries.length)} lịch</b>`);
   lines.push("");
   let index = 1;
   for (const entry of result.entries.slice(0, 20)) {
-    lines.push(`${index}. ${formatWorkScheduleSummaryLine(entry)}`);
+    lines.push(`${index}. ${htmlValue(formatWorkScheduleSummaryLine(entry))}`);
     index += 1;
   }
   if (result.entries.length > 20) {
-    lines.push(`... và ${result.entries.length - 20} lịch nữa.`);
+    lines.push(`... và ${htmlValue(result.entries.length - 20)} lịch nữa.`);
   }
   lines.push("");
-  lines.push("Bấm vào từng lịch bên dưới để xem chi tiết công việc.");
+  lines.push("👇 Bấm từng lịch bên dưới để xem chi tiết.");
   return lines.join("\n");
 }
 
