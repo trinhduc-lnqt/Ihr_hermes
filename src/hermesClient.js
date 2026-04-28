@@ -1500,7 +1500,15 @@ export function formatRequestOrderDetail(order, { checkedAt = new Date() } = {})
   return lines.join("\n");
 }
 
+function isRequestOrderScheduleEntry(entry) {
+  const text = `${entry?.type || ""}\n${entry?.ticket || ""}\n${entry?.product || ""}\n${entry?.status || ""}\n${entry?.text || ""}`;
+  if (entry?.requestOrderId || entry?.raw?.requestOrder || entry?.raw?.requestOrderId || entry?.raw?.roId || entry?.raw?.roCode) return true;
+  if (/#\d{5,}/.test(text)) return true;
+  return /onsite|triển khai|trien khai|deploy|hỗ trợ tiếp|ho tro tiep|further/i.test(text);
+}
+
 function extractRequestOrderIdFromEntry(entry) {
+  if (!isRequestOrderScheduleEntry(entry)) return "";
   const values = [
     entry?.requestOrderId,
     entry?.raw?.requestOrder?._id,
@@ -1508,8 +1516,6 @@ function extractRequestOrderIdFromEntry(entry) {
     entry?.raw?.roId,
     entry?.roId,
     entry?.orderId,
-    entry?.id,
-    entry?.raw?._id,
     ...(entry?.links || []),
     entry?.link,
     entry?.text
@@ -1547,6 +1553,11 @@ export function getRelativeWorkScheduleDate(offsetDays = 0, now = new Date()) {
   return addDays(fromHermesLocalDate(toHermesLocalDate(now)), offsetDays);
 }
 
+function scheduleDetailValue(value, fallback = "Không có") {
+  const text = displayValue(value);
+  return text === "---" ? fallback : text;
+}
+
 export function formatWorkScheduleDetail(entry, result = {}) {
   const checkedAt = new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "short",
@@ -1568,25 +1579,26 @@ export function formatWorkScheduleDetail(entry, result = {}) {
     ...collectLinks(entry?.text || "")
   ].filter(Boolean)));
 
+  const icon = getWorkScheduleTypeIcon(entry?.type);
   const lines = [
-    "📋 Chi tiết lịch làm việc",
+    `${icon} Chi tiết ${entry?.type || "lịch"}`,
     `Ngày: ${targetLabel}`,
     `Kiểm tra lúc: ${checkedAt}`,
     "",
-    `Loại lịch: ${entry?.type || "Chưa rõ"}`,
-    `Ca: ${entry?.shift || "Chưa rõ"}`,
-    `Mã PYC/Ticket: ${entry?.ticket || "Không có"}`,
-    `Sản phẩm/Dịch vụ: ${entry?.product || "Không có"}`,
-    `Khách hàng/Cửa hàng: ${entry?.customer || "Không có"}`,
-    `Trạng thái: ${entry?.status || "Chưa rõ"}`,
-    `Người phụ trách: ${entry?.owner || "Không xác định"}`,
-    `Thời gian: ${entry?.time || "Theo ô lịch Hermes"}`,
-    `Ghi chú: ${entry?.note || "Không có"}`,
-    `Link lịch: ${links.length ? links.join("\n") : "Không có"}`,
+    `Loại lịch: ${entry?.type || "Chưa xác định"}`,
+    entry?.shift ? `Ca: ${entry.shift}` : "",
+    entry?.ticket ? `Mã PYC/Ticket: ${entry.ticket}` : "",
+    entry?.product ? `Sản phẩm/Dịch vụ: ${entry.product}` : "",
+    entry?.customer ? `Khách hàng/Cửa hàng: ${entry.customer}` : "",
+    entry?.status ? `Trạng thái: ${entry.status}` : "",
+    `Người phụ trách: ${scheduleDetailValue(entry?.owner, "Không xác định")}`,
+    `Thời gian: ${scheduleDetailValue(entry?.time, "Theo ô lịch Hermes")}`,
+    entry?.note ? `Ghi chú: ${entry.note}` : "",
+    links.length ? `Link lịch: ${links.join("\n")}` : "",
     "",
     "Tóm tắt:",
     entry?.text || "Không có dữ liệu chi tiết."
-  ];
+  ].filter(Boolean);
   return lines.join("\n");
 }
 
