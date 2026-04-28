@@ -12,7 +12,7 @@ import {
   parseAdjMinuteInput
 } from "./attendanceFlow.js";
 import { assertBotConfig, config } from "./config.js";
-import { cancelHermesOtpSession, formatWorkScheduleDetail, formatWorkScheduleResult, formatWorkScheduleSummaryLine, getRelativeWorkScheduleDate, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
+import { cancelHermesOtpSession, formatRequestOrderDetail, formatWorkScheduleDetail, formatWorkScheduleResult, formatWorkScheduleSummaryLine, getRelativeWorkScheduleDate, getRequestOrderDetailById, getRequestOrderIdFromScheduleEntry, getWorkScheduleByDay, parseWorkScheduleDateInput, submitHermesOtp, submitHermesOtpAndGetWorkSchedule, validateHermesLogin } from "./hermesClient.js";
 import { getSalarySlipWithPreviewImages, probeIhrAvailability, submitAttendance } from "./ihrClient.js";
 import { clearHermesSession, deleteHermesAccount, deleteUserAccount, getAllUserAccounts, getHermesAccount, getUserAccount, saveHermesAccount, saveHermesSession, saveUserAccount, updateSalaryMonitorState } from "./store.js";
 import { connectVpn, diagnoseConfPaths, disconnectVpn, findConfPath, getVpnStatus } from "./wireguard.js";
@@ -1406,7 +1406,40 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
     await ctx.reply("Không tìm thấy mục lịch này. Sếp bấm lấy lịch lại nhé.", workScheduleKeyboard(cached.result, cacheKey));
     return;
   }
-  await ctx.reply(formatWorkScheduleDetail(entry, cached.result), workScheduleDetailKeyboard(cached.result, cacheKey));
+  const requestOrderId = getRequestOrderIdFromScheduleEntry(entry);
+  if (!requestOrderId) {
+    await ctx.reply(formatWorkScheduleDetail(entry, cached.result), workScheduleDetailKeyboard(cached.result, cacheKey));
+    return;
+  }
+
+  const account = await getHermesAccountOrReply(ctx);
+  if (!account) {
+    return;
+  }
+  await ctx.reply("Đang lấy chi tiết PYC thật từ Hermes...");
+  const detail = await enqueue(() => getRequestOrderDetailById({
+    username: account.hermesUsername,
+    password: account.hermesPassword,
+    requestOrderId,
+    storageState: account.hermesSession || null
+  }));
+
+  if (detail.sessionExpired) {
+    await clearHermesSession(ctx.chat.id);
+  }
+  if (detail.otpRequired) {
+    pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_otp", date: cached.result.targetDate });
+    await ctx.reply("Phiên Hermes đã hết hạn nên Hermes yêu cầu OTP lại. Sếp gửi mã OTP mới nhất rồi bấm lịch lại nhé. /cancel để huỷ.");
+    return;
+  }
+  if (!detail.ok) {
+    await ctx.reply(`Không lấy được chi tiết PYC thật từ Hermes.\n${String(detail.message || "Lỗi không xác định").slice(0, 700)}`, workScheduleDetailKeyboard(cached.result, cacheKey));
+    return;
+  }
+  if (detail.storageState) {
+    await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: detail.storageState });
+  }
+  await ctx.reply(formatRequestOrderDetail(detail.order, { checkedAt: detail.checkedAt }), workScheduleDetailKeyboard(cached.result, cacheKey));
 });
 
 bot.action(/^action:hermes_work_list:(.+)$/, async (ctx) => {

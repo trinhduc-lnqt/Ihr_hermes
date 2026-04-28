@@ -227,10 +227,13 @@ function createApiCapture(page) {
     if (!url.includes("/api/")) {
       return;
     }
+    if (response.request().resourceType() === "fetch" && !/\/api\/request-order\/get/i.test(url)) {
+      return;
+    }
     const request = response.request();
     let body = "";
     const contentType = response.headers()["content-type"] || "";
-    if (contentType.includes("json") || /\/api\/user\/(pre-login|get-otp|verify|login)/i.test(url) || /\/api\/support-online\/working-schedule\/list/i.test(url)) {
+    if ((response.request().resourceType() !== "fetch" && contentType.includes("json")) || /\/api\/user\/(pre-login|get-otp|verify|login)/i.test(url) || /\/api\/support-online\/working-schedule\/list/i.test(url) || /\/api\/request-order\/get/i.test(url)) {
       body = await response.text().catch(() => "");
     }
     apiResponses.push({
@@ -471,6 +474,20 @@ function buildScheduleUrl(targetDate) {
     page: "0"
   });
   return `${baseUrl}/api/support-online/working-schedule/list?${params.toString()}`;
+}
+
+function buildRequestOrderUrl(id) {
+  const baseUrl = getHermesBaseUrl();
+  if (!baseUrl) {
+    throw new Error("Chua cau hinh HERMES_BASE_URL/HERMES_LOGIN_URL.");
+  }
+  const params = new URLSearchParams({ id });
+  return `${baseUrl}/api/request-order/get?${params.toString()}`;
+}
+
+function buildRequestOrderPageUrl(id) {
+  const baseUrl = getHermesBaseUrl();
+  return baseUrl && id ? `${baseUrl}/request-order/${id}` : "";
 }
 
 function parseScheduleResponse(text) {
@@ -770,7 +787,7 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
       .replace(/\s+(Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch)$/i, "")
       .trim();
     return {
-      id: `${targetDateText}-dom-${index}`,
+      id: ids[0] || `${targetDateText}-dom-${index}`,
       ticket: text.match(/#\d{5,}/)?.[0] || "",
       type,
       status,
@@ -836,9 +853,12 @@ function collectLinks(item) {
     seen.add(current);
     for (const [key, value] of Object.entries(current)) {
       const lowerKey = key.toLowerCase();
-      if (/url|link|href/.test(lowerKey) && typeof value === "string" && value.trim()) {
+      if ((/url|link|href/.test(lowerKey) || lowerKey === "_id" || lowerKey === "id") && typeof value === "string" && value.trim()) {
         let link = value.trim();
-        if (link.startsWith("/")) {
+        if (/^(?:_id|id)$/i.test(key) && /^[a-f0-9]{24}$/i.test(link)) {
+          const pageUrl = buildRequestOrderPageUrl(link);
+          link = pageUrl || link;
+        } else if (link.startsWith("/")) {
           const baseUrl = getHermesBaseUrl();
           link = baseUrl ? `${baseUrl}${link}` : link;
         }
@@ -891,10 +911,15 @@ function buildScheduleEntry(item, targetDateText, fallbackIndex = 0) {
   const time = getFieldValue(item, ["startTime", "endTime", "fromTime", "toTime", "scheduleTime", "date", "workingDate", "workDate"]);
   const note = getFieldValue(item, ["note", "description", "content", "reason"]);
   const type = getFieldValue(item, ["typeName", "scheduleType", "scheduleTypeName", "workType", "workTypeName", "taskType", "taskTypeName"]) || detectScheduleType(text);
+  const id = getFieldValue(item, ["_id", "id", "scheduleId"]);
   const links = collectLinks(item);
+  if (/^[a-f0-9]{24}$/i.test(id)) {
+    const pageUrl = buildRequestOrderPageUrl(id);
+    if (pageUrl && !links.includes(pageUrl)) links.push(pageUrl);
+  }
 
   return {
-    id: getFieldValue(item, ["id", "_id", "scheduleId"]) || `${targetDateText}-${fallbackIndex}`,
+    id: id || `${targetDateText}-${fallbackIndex}`,
     ticket: ticketMatch?.[0] || "",
     type,
     status,
@@ -1011,6 +1036,203 @@ async function readScheduleFromLoggedInPage(page, apiResponses, targetDate) {
     entries,
     message: entries.length ? "Co lich lam viec." : "Khong co lich lam viec."
   };
+}
+
+
+function coalesce(...values) {
+  for (const value of values) {
+    if (value !== null && value !== undefined && String(value).trim() !== "") {
+      return value;
+    }
+  }
+  return "";
+}
+
+function displayValue(value) {
+  if (value === null || value === undefined || value === "") return "---";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : String(value);
+  if (typeof value === "boolean") return value ? "Có" : "Không";
+  return String(value);
+}
+
+function money(value) {
+  if (value === null || value === undefined || value === "") return "---";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  return `${number.toLocaleString("vi-VN")} đ`;
+}
+
+function mapRequestOrderType(value) {
+  const map = {
+    INVOICE_AND_DEPLOY: "Phiếu thu & Triển khai",
+    DEPLOY: "Triển khai",
+    INVOICE: "Phiếu thu",
+    CANCEL: "Hủy"
+  };
+  return map[value] || value || "---";
+}
+
+function mapContractType(value) {
+  const map = { COMPANY: "Công ty", PERSONAL: "Cá nhân" };
+  return map[value] || value || "---";
+}
+
+function mapDeployType(value) {
+  const map = { TECHNICAL: "Kỹ thuật", ONLINE: "Online", ONSITE: "Onsite" };
+  return map[value] || value || "---";
+}
+
+function mapRequestOrderStatus(value) {
+  const map = {
+    PENDING: "Chờ xử lý",
+    COMPLETED: "Hoàn thành",
+    REVIEWED: "Đã duyệt",
+    RECEIVED: "Đã nhận",
+    PROCESSED: "Đã xử lý",
+    DELOYING: "Đang triển khai",
+    DEPLOYING: "Đang triển khai",
+    ASSIGNED: "Đã phân lịch",
+    CANCELLED: "Đã hủy",
+    REJECTED: "Từ chối"
+  };
+  return map[value] || value || "---";
+}
+
+function mapDeployStatus(value) {
+  const map = {
+    PENDING: "Tạm dừng",
+    COMPLETED: "Hoàn thành",
+    REVIEWED: "Đã duyệt",
+    RECEIVED: "Đã nhận",
+    PROCESSED: "Đã xử lý",
+    DELOYING: "Đang triển khai",
+    DEPLOYING: "Đang triển khai",
+    ASSIGNED: "Đã phân lịch",
+    CANCELLED: "Đã hủy",
+    REJECTED: "Từ chối"
+  };
+  return map[value] || value || "---";
+}
+
+function formatRequestOrderProducts(details = [], devices = []) {
+  if (!Array.isArray(details) || !details.length) return ["---"];
+  return details.slice(0, 12).map((item, index) => {
+    const serial = Array.isArray(devices)
+      ? devices.find((device) => device?.SKU && item?.SKU && device.SKU === item.SKU)?.serial
+      : "";
+    const suffix = [
+      item?.serviceCode ? `(${item.serviceCode})` : "",
+      item?.SKU ? `SKU: ${item.SKU}` : "",
+      serial ? `Serial: ${serial}` : ""
+    ].filter(Boolean).join(" | ");
+    return `${index + 1}. ${displayValue(item?.serviceName)}${suffix ? ` - ${suffix}` : ""}
+   Đơn giá: ${money(coalesce(item?.salePrice, item?.orgPrice))} | SL: ${displayValue(item?.quantity)} ${displayValue(item?.serviceUnit)} | Thành tiền: ${money(item?.amount)}`;
+  });
+}
+
+export function formatRequestOrderDetail(order, { checkedAt = new Date() } = {}) {
+  const checkedAtText = new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "short",
+    timeStyle: "medium",
+    timeZone: config.timezoneId
+  }).format(checkedAt);
+  const deploymentContact = order?.deploymentContact || {};
+  const hubInfo = order?.hubInfo || {};
+  const lines = [
+    `📋 Chi tiết PYC #${displayValue(order?.roCode)}`,
+    `Kiểm tra lúc: ${checkedAtText}`,
+    `Link Hermes: ${buildRequestOrderPageUrl(order?._id) || "Không có"}`,
+    "",
+    `Mã hợp đồng: ${displayValue(order?.contractCode)}`,
+    `Mã đơn 3rd Party: ${displayValue(order?.thirdPartyOrderCode)}`,
+    `Loại PYC: ${mapRequestOrderType(order?.type)}`,
+    `Loại HĐ: ${mapContractType(order?.contractType)}`,
+    `Sản phẩm: ${displayValue(order?.productCode)}`,
+    "",
+    "THÔNG TIN PYC",
+    `Sale phụ trách: ${[order?.saleName, order?.picSale, order?.salePhone].filter(Boolean).join(" | ") || "---"}`,
+    `Leader phụ trách: ${displayValue(order?.picLeader)}`,
+    `Tên KH: ${displayValue(order?.customerName)}`,
+    `Company ID: ${displayValue(order?.companyId)}`,
+    `Mã cửa hàng: ${displayValue(order?.storeId)}`,
+    `Tên cửa hàng: ${displayValue(order?.storeName || hubInfo?.name)}`,
+    `Ngày tạo: ${displayValue(order?.createdTime)}`,
+    `Trạng thái: ${mapRequestOrderStatus(order?.status)} ${displayValue(order?.updatedTime)}`,
+    `Trạng thái SA: ${mapRequestOrderStatus(order?.adminStatus)} ${displayValue(order?.adminCompletedAt)}`,
+    `Trạng thái Kho: ${mapRequestOrderStatus(order?.warehouseStatus)} ${displayValue(order?.warehouseCompletedAt || order?.warehouseProcessedAt || order?.warehouseReceivedAt)}`,
+    `Trạng thái Leader: ${mapRequestOrderStatus(order?.partnerStatus)} ${displayValue(order?.partnerReviewedAt)}`,
+    `Trạng thái triển khai: ${mapDeployStatus(order?.spStatus)}`,
+    "",
+    "THÔNG TIN DỊCH VỤ, SẢN PHẨM",
+    ...formatRequestOrderProducts(order?.details, order?.devices),
+    `Tổng tiền thu: ${money(order?.amount)}`,
+    `Đã thanh toán: ${money(order?.paymentAmount)}`,
+    `Còn lại: ${money(order?.remainAmount)}`,
+    "",
+    "THÔNG TIN GIAO NHẬN",
+    `Nhận tại: ${displayValue(order?.pickUpAt)}`,
+    `Tên người nhận: ${displayValue(order?.pickUpContactName)}`,
+    `SDT người nhận: ${displayValue(order?.pickUpContactPhone)}`,
+    `Địa chỉ nhận: ${displayValue(order?.pickUpAddress)}`,
+    `Dự kiến nhận hàng: ${displayValue(order?.deploymentTime)}`,
+    `Phương thức thanh toán: ${displayValue(order?.deploymentSaleForm)}`,
+    "",
+    "THÔNG TIN TRIỂN KHAI",
+    `Loại triển khai: ${displayValue(order?.deployTechForm)}`,
+    `Bộ phận nhận: ${mapDeployType(order?.deploymentType)}`,
+    `Người liên hệ triển khai: ${displayValue(deploymentContact?.name || order?.contactName)}`,
+    `SĐT liên hệ triển khai: ${displayValue(deploymentContact?.phone || order?.contactPhone)}`,
+    `Team triển khai: ${displayValue(order?.picSpTeam)}`,
+    `Leader triển khai: ${displayValue(order?.picSpLdr)}`,
+    `Phân lịch: ${displayValue(order?.spAssignedAt)}`,
+    `Người phân lịch: ${displayValue(order?.spAssignedBy)}`,
+    `Người triển khai: ${displayValue(order?.picSp)}`,
+    `Dự kiến triển khai: ${displayValue(order?.deploymentTime)}`,
+    `Bắt đầu triển khai: ${displayValue(order?.spDeloyStartAt)}`,
+    `Triển khai xong: ${displayValue(order?.spCompletedAt)}`,
+    `Trạng thái triển khai: ${mapDeployStatus(order?.spStatus)}`,
+    `Thương hiệu: ${displayValue(order?.brandName)} (${displayValue(order?.brandId)})`,
+    `Cửa hàng: ${displayValue(order?.storeName || hubInfo?.name)} (${displayValue(order?.storeId || hubInfo?.storeId)})`,
+    `Tỉnh/Thành phố: ${displayValue(order?.city)}`,
+    `Kho xuất thiết bị: ${displayValue(order?.picWarehouseTeamId)}`,
+    `Ghi chú triển khai: ${displayValue(order?.contractNote)}`,
+    `Nội dung triển khai: Điểm gốc: ${displayValue(order?.point)} | Tổng điểm: ${displayValue(order?.point)}`,
+    "",
+    "THÔNG TIN HỢP ĐỒNG/PHIẾU THU",
+    `Gửi lại quy định mua hàng: ${displayValue(order?.resendEContract === 1 ? "Có" : order?.resendEContract)}`,
+    `In hợp đồng giấy: ${displayValue(order?.isEContract === 1 ? "Không" : "Có")}`,
+    `Tên công ty: ${displayValue(order?.contactCompany || order?.customerName)}`,
+    `Địa chỉ Cty: ${displayValue(order?.companyFullAddess)}`,
+    `Mã số thuế: ${displayValue(order?.companyTaxCode)}`,
+    `Email thuế: ${displayValue(order?.companyTaxEmail)}`,
+    `Đại diện: ${displayValue(order?.contactName)}`,
+    `Chức vụ: ${displayValue(order?.contactTitle)}`,
+    `SDT người đại diện: ${displayValue(order?.contactPhone)}`,
+    `Địa điểm triển khai: ${displayValue(order?.deploymentAddress || order?.storeAddress || hubInfo?.address)}`,
+    `Nguồn tạo: ${displayValue(order?.creatorSource === "INTERNAL" ? "Nội bộ" : order?.creatorSource)}`,
+    `Role tạo: ${displayValue(order?.creatorType === "SALE" ? "Sale" : order?.creatorType)}`
+  ];
+  return lines.join("\n");
+}
+
+function extractRequestOrderIdFromEntry(entry) {
+  const values = [
+    entry?.requestOrderId,
+    entry?.roId,
+    entry?.orderId,
+    entry?.id,
+    entry?.raw?._id,
+    entry?.raw?.requestOrderId,
+    entry?.raw?.roId,
+    ...(entry?.links || []),
+    entry?.link,
+    entry?.text
+  ].filter(Boolean);
+  for (const value of values) {
+    const match = String(value).match(/[a-f0-9]{24}/i);
+    if (match) return match[0];
+  }
+  return "";
 }
 
 export function parseWorkScheduleDateInput(text, now = new Date()) {
@@ -1140,6 +1362,74 @@ export function formatWorkScheduleResult(result) {
   lines.push("");
   lines.push("Bấm vào từng lịch bên dưới để xem chi tiết công việc.");
   return lines.join("\n");
+}
+
+
+async function fetchRequestOrderFromLoggedInPage(page, requestOrderId, apiResponses = []) {
+  const detailPageUrl = buildRequestOrderPageUrl(requestOrderId);
+  if (detailPageUrl) {
+    await page.goto(detailPageUrl, { waitUntil: "domcontentloaded", timeout: config.timeoutMs }).catch(() => {});
+    await page.waitForTimeout(3000);
+  }
+  await page.waitForTimeout(3000);
+  const capturedResponse = [...(apiResponses || [])].reverse().find((response) => /\/api\/request-order\/get/i.test(response.url) && response.url.includes(requestOrderId) && response.body);
+  if (capturedResponse) {
+    const parsed = parseJsonSafe(capturedResponse.body);
+    const order = parsed?.data || parsed;
+    if (order && typeof order === "object" && order.roCode) {
+      return { ok: true, order, checkedAt: new Date(), requestOrderId, raw: parsed };
+    }
+  }
+
+  const url = buildRequestOrderUrl(requestOrderId);
+  const fetched = await page.evaluate(async (requestUrl) => {
+    const response = await fetch(requestUrl, { credentials: "include" });
+    return { status: response.status, body: await response.text() };
+  }, url).catch((error) => ({ status: 0, body: error.message || "" }));
+  if ([401, 403].includes(fetched.status) || /login|unauthori[sz]ed|otp|forbidden/i.test(fetched.body || "")) {
+    return { ok: false, sessionExpired: true, message: "Phiên Hermes đã hết hạn hoặc API yêu cầu đăng nhập lại." };
+  }
+  const parsed = parseJsonSafe(fetched.body);
+  const order = parsed?.data || parsed;
+  if (!order || typeof order !== "object" || !order.roCode) {
+    return { ok: false, message: `Không lấy được chi tiết PYC từ Hermes. HTTP ${fetched.status}.` };
+  }
+  return { ok: true, order, checkedAt: new Date(), requestOrderId, raw: parsed };
+}
+
+export async function getRequestOrderDetailById({ username, password, requestOrderId, storageState = null }) {
+  if (!requestOrderId) {
+    return { ok: false, message: "Không có request-order id để lấy chi tiết." };
+  }
+  if (storageState) {
+    const session = await createHermesBrowserContext(storageState);
+    try {
+      await session.page.goto(new URL("/support-working-schedule", config.hermesLoginUrl).toString(), { waitUntil: "domcontentloaded", timeout: config.timeoutMs }).catch(() => {});
+      await session.page.waitForTimeout(1500);
+      if (!(await hasVisibleOtpInput(session.page)) && await isLoggedIn(session.page)) {
+        const result = await fetchRequestOrderFromLoggedInPage(session.page, requestOrderId, session.apiResponses);
+        return { ...result, reusedSession: true, storageState: result.ok ? await session.context.storageState().catch(() => storageState) : storageState };
+      }
+      return { ok: false, sessionExpired: true, message: "Phiên Hermes đã hết hạn hoặc bị yêu cầu đăng nhập lại." };
+    } finally {
+      await session.browser.close().catch(() => {});
+    }
+  }
+
+  const login = await loginHermesPage({ username, password });
+  if (!login.ok) {
+    return { ...login, sessionExpired: login.otpRequired };
+  }
+  try {
+    const result = await fetchRequestOrderFromLoggedInPage(login.page, requestOrderId, login.apiResponses);
+    return { ...result, storageState: result.ok ? await login.context.storageState().catch(() => null) : null };
+  } finally {
+    await login.browser.close().catch(() => {});
+  }
+}
+
+export function getRequestOrderIdFromScheduleEntry(entry) {
+  return extractRequestOrderIdFromEntry(entry);
 }
 
 export async function getWorkScheduleByDay({ username, password, date = new Date(), storageState = null }) {
