@@ -12,6 +12,7 @@ import {
   getRelativeWorkScheduleDate,
   getRequestOrderDetailById,
   getRequestOrderIdFromScheduleEntry,
+  getRequestOrderPageUrlFromScheduleEntry,
   getWorkScheduleByDay,
   parseWorkScheduleDateInput,
   submitHermesOtp,
@@ -100,6 +101,8 @@ function compactButtonLabel(text, maxLength = 42) {
 }
 
 function firstValidScheduleLink(entry) {
+  const requestOrderPageUrl = getRequestOrderPageUrlFromScheduleEntry(entry);
+  if (requestOrderPageUrl) return requestOrderPageUrl;
   const requestOrderId = getRequestOrderIdFromScheduleEntry(entry);
   if (!requestOrderId) return "";
   return [entry?.link, ...(entry?.links || [])]

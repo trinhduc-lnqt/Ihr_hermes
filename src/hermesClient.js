@@ -1832,6 +1832,11 @@ export function getRequestOrderIdFromScheduleEntry(entry) {
   return extractRequestOrderIdFromEntry(entry);
 }
 
+export function getRequestOrderPageUrlFromScheduleEntry(entry) {
+  const requestOrderId = extractRequestOrderIdFromEntry(entry);
+  return requestOrderId ? buildRequestOrderPageUrl(requestOrderId) : "";
+}
+
 export async function getWorkScheduleByDay({ username, password, date = new Date(), storageState = null }) {
   if (!config.hermesLoginUrl) {
     return { ok: false, message: "Chua cau hinh HERMES_LOGIN_URL." };
