@@ -619,18 +619,66 @@ function flattenScheduleText(value) {
   return parts;
 }
 
-function extractScheduleEntriesFromBody(bodyText, targetDate) {
+function normalizeHermesPrincipal(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  return raw.replace(/@ipos\.vn$/i, "");
+}
+
+function makeHermesViewerIdentity(username = "") {
+  const principal = normalizeHermesPrincipal(username);
+  return {
+    username: principal,
+    email: principal ? `${principal}@ipos.vn` : "",
+    matches(value) {
+      const candidate = normalizeHermesPrincipal(value);
+      return Boolean(candidate && candidate === principal);
+    }
+  };
+}
+
+function isSameHermesDay(value, targetDateText) {
+  return Boolean(value && String(value).slice(0, 10) === targetDateText);
+}
+
+function isScheduleEntryForViewer(item, viewer) {
+  if (!viewer?.username) return true;
+  const order = item?.requestOrder && typeof item.requestOrder === "object" ? item.requestOrder : null;
+  const candidates = [
+    item?.employeeEmail,
+    item?.email,
+    item?.username,
+    item?.employeeUserName,
+    item?.userName,
+    item?.owner,
+    item?.supporter,
+    item?.assignee,
+    order?.picSp,
+    order?.picSupport,
+    order?.picSupporter,
+    order?.deploymentContactEmail
+  ].filter((value) => value !== null && value !== undefined && String(value).trim() !== "");
+  if (!candidates.length) return true;
+  return candidates.some((value) => viewer.matches(value));
+}
+
+function filterScheduleEntriesForViewer(entries, viewer, targetDateText) {
+  return (entries || [])
+    .filter((entry) => !targetDateText || entry?.date === targetDateText || isSameHermesDay(entry?.raw?.startTime, targetDateText) || isSameHermesDay(entry?.raw?.endTime, targetDateText))
+    .filter((entry) => isScheduleEntryForViewer(entry?.raw || entry, viewer))
+    .map((entry) => ({ ...entry, owner: entry.owner || viewer?.username || "" }));
+}
+
+function extractScheduleEntriesFromBody(bodyText, targetDate, viewer = makeHermesViewerIdentity()) {
   const targetDateText = toHermesLocalDate(targetDate);
   const lineItems = [];
   const lines = String(bodyText || "").split("\n").map((line) => line.trim()).filter(Boolean);
-  const userIndex = lines.findIndex((line) => /^duc\.dao$/i.test(line));
+  const userIndex = lines.findIndex((line) => viewer.matches(line));
   if (userIndex >= 0) {
-    const stopUserPattern = /^(tam\.ha|duong\.tran|quang\.phuong|anh\.phan|lam\.nguyen|hiep\.le|huy\.nguyen02|cong\.nguyen01|linh\.tran02|dat\.tran02|bo\.nguyen01)$/i;
+    const employeeLinePattern = /^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_.-]*(?:@ipos\.vn)?$/i;
     const block = [];
     for (const line of lines.slice(userIndex + 1)) {
-      if (stopUserPattern.test(line)) {
-        break;
-      }
+      if (employeeLinePattern.test(line) && !viewer.matches(line)) break;
       block.push(line);
     }
     for (let index = 0; index < block.length; index += 1) {
@@ -656,7 +704,7 @@ function extractScheduleEntriesFromBody(bodyText, targetDate) {
       status: text.match(/Đã phân lịch|Tạm dừng|Đã hoàn thành|Chờ lịch|Nghỉ/i)?.[0] || "",
       product: text.replace(/^#\d+\s*-\s*/, "").replace(/\s+—\s+.*$/, ""),
       customer: "",
-      owner: "duc.dao",
+      owner: viewer.username || "",
       shift: "",
       time: "",
       note: "",
@@ -668,9 +716,9 @@ function extractScheduleEntriesFromBody(bodyText, targetDate) {
   });
 }
 
-async function extractScheduleEntriesFromDom(page, targetDate) {
+async function extractScheduleEntriesFromDom(page, targetDate, viewer = makeHermesViewerIdentity()) {
   const targetDateText = toHermesLocalDate(targetDate);
-  const rawItems = await page.evaluate((target) => {
+  const rawItems = await page.evaluate(({ target, viewerName }) => {
     const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
     const headers = [...document.querySelectorAll(".header-wrapper .date-in-week")].map((element) => {
       const rect = element.getBoundingClientRect();
@@ -684,7 +732,10 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
     }
 
     const rows = [...document.querySelectorAll(".employee-wrapper")];
-    const row = rows.find((element) => /(^|\s)duc\.dao(\s|$)/i.test(clean(element.querySelector(".emp-info")?.innerText || element.innerText)));
+    const row = rows.find((element) => {
+      const text = clean(element.querySelector(".emp-info")?.innerText || element.innerText).toLowerCase();
+      return text.split(/\s+/).some((part) => part.replace(/@ipos\.vn$/i, "") === viewerName);
+    });
     if (!row) {
       return [];
     }
@@ -734,7 +785,7 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
         className: item.className,
         html: item.html
       }));
-  }, targetDateText).catch(() => []);
+  }, { target: targetDateText, viewerName: viewer.username }).catch(() => []);
 
   const parseTimeFromTitle = (title) => {
     const match = String(title || "").match(/Từ\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+đến\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i);
@@ -813,7 +864,7 @@ async function extractScheduleEntriesFromDom(page, targetDate) {
       status,
       product,
       customer: titleText.match(/(?:Khách hàng|Cửa hàng|Địa điểm triển khai):\s*([^|\n]+)/i)?.[1]?.trim() || "",
-      owner: "duc.dao",
+      owner: viewer.username || "",
       shift: "",
       time: parseTimeFromTitle(titleText),
       note,
@@ -1003,14 +1054,16 @@ function buildScheduleEntry(item, targetDateText, fallbackIndex = 0) {
   };
 }
 
-function normalizeScheduleEntriesFromApi(apiResponses, targetDate) {
+function normalizeScheduleEntriesFromApi(apiResponses, targetDate, viewer = makeHermesViewerIdentity()) {
   const targetDateText = toHermesLocalDate(targetDate);
   for (const response of [...apiResponses].reverse()) {
     if (!/\/api\/support-online\/working-schedule\/list/i.test(response.url) || !response.body) {
       continue;
     }
     const roots = parseScheduleResponse(response.body);
-    const rawItems = collectScheduleItems(roots, targetDateText);
+    const rawItems = collectScheduleItems(roots, targetDateText)
+      .filter((item) => isSameHermesDay(item?.startTime, targetDateText) || isSameHermesDay(item?.endTime, targetDateText) || valueContainsTargetDate(item, targetDateText))
+      .filter((item) => isScheduleEntryForViewer(item, viewer));
     if (rawItems.length) {
       return rawItems.map((item, index) => buildScheduleEntry(item, targetDateText, index));
     }
@@ -1066,7 +1119,8 @@ async function loginHermesPage({ username, password }) {
   return { ok: true, browser, context, page, apiResponses };
 }
 
-async function readScheduleFromLoggedInPage(page, apiResponses, targetDate) {
+async function readScheduleFromLoggedInPage(page, apiResponses, targetDate, username = "") {
+  const viewer = makeHermesViewerIdentity(username);
   const scheduleUrl = new URL("/support-working-schedule", config.hermesLoginUrl).toString();
   await page.goto(scheduleUrl, { waitUntil: "domcontentloaded", timeout: config.timeoutMs }).catch(() => {});
   await page.waitForTimeout(7000);
@@ -1087,21 +1141,25 @@ async function readScheduleFromLoggedInPage(page, apiResponses, targetDate) {
     }
   }
 
-  let entries = normalizeScheduleEntriesFromApi(apiResponses, targetDate);
+  const targetDateText = toHermesLocalDate(targetDate);
+  let entries = normalizeScheduleEntriesFromApi(apiResponses, targetDate, viewer);
+  entries = filterScheduleEntriesForViewer(entries, viewer, targetDateText);
   if (!entries.length) {
-    entries = await extractScheduleEntriesFromDom(page, targetDate);
+    entries = await extractScheduleEntriesFromDom(page, targetDate, viewer);
+    entries = filterScheduleEntriesForViewer(entries, viewer, targetDateText);
   }
   if (!entries.length) {
     const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
-    const hasCalendarGrid = /T[2-7]|CN/.test(bodyText) && /\d{4}-\d{2}-\d{2}/.test(bodyText) && /duc\.dao/i.test(bodyText);
+    const hasCalendarGrid = /T[2-7]|CN/.test(bodyText) && /\d{4}-\d{2}-\d{2}/.test(bodyText) && (viewer.username ? bodyText.toLowerCase().includes(viewer.username) : true);
     if (!hasCalendarGrid) {
-      entries = extractScheduleEntriesFromBody(bodyText, targetDate);
+      entries = extractScheduleEntriesFromBody(bodyText, targetDate, viewer);
+      entries = filterScheduleEntriesForViewer(entries, viewer, targetDateText);
     }
   }
 
   return {
     ok: true,
-    targetDate: toHermesLocalDate(targetDate),
+    targetDate: targetDateText,
     checkedAt: new Date(),
     entries,
     message: entries.length ? "Co lich lam viec." : "Khong co lich lam viec."
@@ -1364,7 +1422,7 @@ export function formatWorkScheduleDetail(entry, result = {}) {
     `Sản phẩm/Dịch vụ: ${entry?.product || "Không có"}`,
     `Khách hàng/Cửa hàng: ${entry?.customer || "Không có"}`,
     `Trạng thái: ${entry?.status || "Chưa rõ"}`,
-    `Người phụ trách: ${entry?.owner || "duc.dao"}`,
+    `Người phụ trách: ${entry?.owner || "Không xác định"}`,
     `Thời gian: ${entry?.time || "Theo ô lịch Hermes"}`,
     `Ghi chú: ${entry?.note || "Không có"}`,
     `Link lịch: ${links.length ? links.join("\n") : "Không có"}`,
@@ -1511,7 +1569,7 @@ export async function getWorkScheduleByDay({ username, password, date = new Date
   if (storageState) {
     const session = await createHermesBrowserContext(storageState);
     try {
-      const result = await readScheduleFromLoggedInPage(session.page, session.apiResponses, date);
+      const result = await readScheduleFromLoggedInPage(session.page, session.apiResponses, date, username);
       if (result.ok) {
         return {
           ...result,
@@ -1535,7 +1593,7 @@ export async function getWorkScheduleByDay({ username, password, date = new Date
   }
 
   try {
-    const result = await readScheduleFromLoggedInPage(login.page, login.apiResponses, date);
+    const result = await readScheduleFromLoggedInPage(login.page, login.apiResponses, date, username);
     return {
       ...result,
       storageState: result.ok ? await login.context.storageState().catch(() => null) : null
@@ -1573,7 +1631,7 @@ export async function submitHermesOtpAndGetWorkSchedule(otp, date = new Date()) 
       return { ok: false, message: "Da gui OTP nhung Hermes chua vao duoc trang sau dang nhap." };
     }
 
-    const result = await readScheduleFromLoggedInPage(page, session.apiResponses || [], date);
+    const result = await readScheduleFromLoggedInPage(page, session.apiResponses || [], date, session.username);
     return {
       ...result,
       storageState: result.ok ? await session.context.storageState().catch(() => null) : null
