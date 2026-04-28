@@ -490,6 +490,18 @@ function buildRequestOrderPageUrl(id) {
   return baseUrl && id ? `${baseUrl}/request-order/${id}` : "";
 }
 
+function mapScheduleType(type) {
+  const value = String(type || "").toUpperCase();
+  if (value === "ONSITE") return "Onsite";
+  if (value === "MAINTENANCE") return "Bảo trì";
+  if (value === "DEPLOY") return "Triển khai";
+  if (value === "DEPLOY_EXTRA") return "Triển khai thêm";
+  if (value === "FURTHER_DEPLOY") return "Hỗ trợ tiếp";
+  if (value === "BUSY") return "Lịch trực";
+  if (value === "LEAVE" || value === "OFF") return "Nghỉ";
+  return type || "";
+}
+
 function parseScheduleResponse(text) {
   const data = parseJsonSafe(text);
   if (!data) {
@@ -506,6 +518,9 @@ function parseScheduleResponse(text) {
   }
   if (Array.isArray(data.result)) {
     return data.result;
+  }
+  if (Array.isArray(data.data?.data)) {
+    return data.data.data;
   }
   if (Array.isArray(data.data?.items)) {
     return data.data.items;
@@ -900,6 +915,52 @@ function detectScheduleType(text) {
 }
 
 function buildScheduleEntry(item, targetDateText, fallbackIndex = 0) {
+  const order = item?.requestOrder && typeof item.requestOrder === "object" ? item.requestOrder : null;
+  if (order) {
+    const requestOrderId = order._id || item.requestOrderId || item.roId || "";
+    const scheduleId = item._id || item.id || "";
+    const ticket = order.roCode || item.roCode || "";
+    const links = collectLinks(item);
+    const pageUrl = buildRequestOrderPageUrl(requestOrderId);
+    if (pageUrl && !links.includes(pageUrl)) links.unshift(pageUrl);
+    const time = [item.startTime || order.deploymentTime, item.endTime || order.estDeployEndTime]
+      .filter(Boolean)
+      .join(" đến ");
+    const product = order.productCode || getFieldValue(item, ["productName", "product", "moduleName", "serviceName", "projectName"]);
+    const customer = order.storeAddress || order.deploymentAddress || order.storeName || order.customerName || "";
+    const status = mapDeployStatus(order.spStatus) || getFieldValue(item, ["statusName", "status", "scheduleStatus", "ticketStatus"]);
+    const owner = String(item.employeeEmail || order.picSp || "").replace(/@ipos\.vn$/i, "");
+    const note = order.contractNote || getFieldValue(item, ["note", "description", "content", "reason"]);
+    const type = mapScheduleType(item.type || order.type) || detectScheduleType(JSON.stringify(item));
+    const text = [
+      `#${ticket} - ${product} ${status}`.trim(),
+      order.customerName ? `Khách hàng: ${order.customerName}` : "",
+      order.storeName ? `Cửa hàng: ${order.storeName}` : "",
+      customer ? `Địa điểm: ${customer}` : "",
+      note ? `Nội dung: ${note}` : ""
+    ].filter(Boolean).join("\n");
+
+    return {
+      id: requestOrderId || scheduleId || `${targetDateText}-${fallbackIndex}`,
+      scheduleId,
+      requestOrderId,
+      ticket: ticket ? `#${ticket}` : "",
+      type,
+      status,
+      product,
+      customer,
+      owner,
+      shift: "",
+      time,
+      note,
+      links,
+      link: links[0] || "",
+      text,
+      raw: item,
+      date: targetDateText
+    };
+  }
+
   const parts = flattenScheduleText(item);
   const cleanParts = parts
     .filter((part) => !/^([a-f0-9]{24}|true|false|null)$/i.test(part))
@@ -944,13 +1005,17 @@ function buildScheduleEntry(item, targetDateText, fallbackIndex = 0) {
 
 function normalizeScheduleEntriesFromApi(apiResponses, targetDate) {
   const targetDateText = toHermesLocalDate(targetDate);
-  const response = [...apiResponses].reverse().find((item) => /\/api\/support-online\/working-schedule\/list/i.test(item.url));
-  if (!response?.body) {
-    return [];
+  for (const response of [...apiResponses].reverse()) {
+    if (!/\/api\/support-online\/working-schedule\/list/i.test(response.url) || !response.body) {
+      continue;
+    }
+    const roots = parseScheduleResponse(response.body);
+    const rawItems = collectScheduleItems(roots, targetDateText);
+    if (rawItems.length) {
+      return rawItems.map((item, index) => buildScheduleEntry(item, targetDateText, index));
+    }
   }
-  const roots = parseScheduleResponse(response.body);
-  const rawItems = collectScheduleItems(roots, targetDateText);
-  return rawItems.map((item, index) => buildScheduleEntry(item, targetDateText, index));
+  return [];
 }
 
 async function createHermesBrowserContext(storageState = null) {
@@ -1223,12 +1288,13 @@ export function formatRequestOrderDetail(order, { checkedAt = new Date() } = {})
 function extractRequestOrderIdFromEntry(entry) {
   const values = [
     entry?.requestOrderId,
+    entry?.raw?.requestOrder?._id,
+    entry?.raw?.requestOrderId,
+    entry?.raw?.roId,
     entry?.roId,
     entry?.orderId,
     entry?.id,
     entry?.raw?._id,
-    entry?.raw?.requestOrderId,
-    entry?.raw?.roId,
     ...(entry?.links || []),
     entry?.link,
     entry?.text
