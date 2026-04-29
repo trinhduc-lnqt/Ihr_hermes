@@ -463,13 +463,15 @@ function formatKpiMonthTelegramHtml(monthData, item) {
     `🎯 <b>KPI tháng ${escapeHtml(monthLabel)}</b>`,
     `👤 <b>${escapeHtml(item.support)}</b>`,
     "",
-    formatPercentGapLine("KPI Deploy (%)", item.deployPct),
-    formatPercentGapLine("KPI Hotline (%)", item.hotlinePct),
-    `KPI SUM: <b>${String(item.kpiSum ?? 0)}</b>`,
+    "┏━━ 📊 <b>KHUNG KPI</b> ━━",
+    `┣ ${formatPercentGapLine("🚀 KPI Deploy", item.deployPct)}`,
+    `┣ ${formatPercentGapLine("🎧 KPI Hotline", item.hotlinePct)}`,
+    `┗ 🧮 KPI SUM: <b>${String(item.kpiSum ?? 0)}</b>`,
     "",
-    `POINT Thực tế (1): <b>${Number(item.pointActual || 0).toFixed(2)}</b>`,
-    `POINT Bonus (2): <b>${Number(item.pointBonus || 0).toFixed(2)}</b>`,
-    `POINT Tính lương: <b>${Number(item.pointSalary || 0).toFixed(2)}</b>`
+    "┏━━ 💰 <b>KHUNG POINT TÍNH LƯƠNG</b> ━━",
+    `┣ 💵 POINT Thực tế (1): <b>${Number(item.pointActual || 0).toFixed(2)}</b>`,
+    `┣ 🎁 POINT Bonus (2): <b>${Number(item.pointBonus || 0).toFixed(2)}</b>`,
+    `┗ 🏆 POINT Tính lương: <b>${Number(item.pointSalary || 0).toFixed(2)}</b>`
   ].join("\n");
 }
 
