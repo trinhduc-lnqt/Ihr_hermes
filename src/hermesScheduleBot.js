@@ -670,7 +670,26 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
     return;
   }
   if (!detail.ok) {
-    await ctx.reply(`Không lấy được chi tiết PYC thật từ Hermes.\n${String(detail.message || "Lỗi không xác định").slice(0, 700)}`, workScheduleDetailKeyboard(cached.result, cacheKey, entry));
+    console.error("[hermes_work_detail] failed to fetch request order detail", {
+      chatId: ctx.chat?.id,
+      cacheKey,
+      index,
+      requestOrderId,
+      ticket: entry?.ticket || "",
+      message: detail.message || "Unknown error",
+      sessionExpired: Boolean(detail.sessionExpired),
+      otpRequired: Boolean(detail.otpRequired)
+    });
+    await ctx.reply([
+      "Không lấy được chi tiết PYC thật từ Hermes.",
+      String(detail.message || "Lỗi không xác định").slice(0, 700),
+      "",
+      "Em hiển thị chi tiết lịch đang có trước để Sếp không bị đứng flow."
+    ].join("\n"), workScheduleDetailKeyboard(cached.result, cacheKey, entry));
+    await ctx.reply(formatWorkScheduleNoteOnlyDetail(entry, cached.result), {
+      parse_mode: "HTML",
+      ...workScheduleDetailKeyboard(cached.result, cacheKey, entry)
+    });
     return;
   }
   if (detail.storageState) {
