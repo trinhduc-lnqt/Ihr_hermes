@@ -331,11 +331,9 @@ function formatDutyInlinePeople(values = []) {
   return items.length ? escapeHtml(items.join(" • ")) : "-";
 }
 
-function formatDutyAlignedLine(icon, label, value, width = 15) {
-  const cleanLabel = String(label || "").trim();
-  const padSize = Math.max(0, width - cleanLabel.length);
-  const paddedLabel = `${escapeHtml(cleanLabel)}${"&nbsp;".repeat(padSize)}`;
-  return `${icon} ${paddedLabel}: ${value}`;
+function formatDutyAlignedLine(icon, label, value) {
+  const cleanLabel = escapeHtml(String(label || "").trim());
+  return `${icon} <b>${cleanLabel}:</b> ${value}`;
 }
 
 function splitNoteGroupItems(rawValue) {
@@ -371,12 +369,10 @@ function formatDutyNoteLines(note) {
     return [];
   }
 
-  const maxTitleLength = groups.reduce((max, group) => Math.max(max, String(group.title || "").trim().length), 0);
-
   return groups.map((group) => {
     const title = String(group.title || "").trim();
     const value = group.items.length ? escapeHtml(group.items.join(" • ")) : "";
-    return formatDutyAlignedLine("📍", title, value, Math.max(18, maxTitleLength));
+    return formatDutyAlignedLine("📍", title, value);
   });
 }
 
@@ -395,7 +391,7 @@ function formatHolidayDutyScheduleHtml(result) {
     if (match) {
       const [, title, value] = match;
       const normalizedTitle = /^ca\s*1/i.test(title) ? ["☀️", "Trực ca 1"] : /^ca\s*2/i.test(title) ? ["🌙", "Trực ca 2"] : ["🎊", title];
-      body.push(formatDutyAlignedLine(normalizedTitle[0], normalizedTitle[1], escapeHtml((value || "-").trim() || "-"), 15));
+      body.push(formatDutyAlignedLine(normalizedTitle[0], normalizedTitle[1], escapeHtml((value || "-").trim() || "-")));
       continue;
     }
 
@@ -403,7 +399,7 @@ function formatHolidayDutyScheduleHtml(result) {
       body.push("", "📝 Ghi chú");
       hasNoteTitle = true;
     }
-    body.push(line.startsWith("📍") ? escapeHtml(line) : formatDutyAlignedLine("📍", line, "", 18));
+    body.push(line.startsWith("📍") ? escapeHtml(line) : formatDutyAlignedLine("📍", line, ""));
   }
 
   return body.concat(["", `🔗 <a href="${escapeHtml(DUTY_SHEET_URL)}">Check lịch trực</a>`]).join("\n");
