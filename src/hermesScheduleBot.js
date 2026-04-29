@@ -39,7 +39,9 @@ let queue = Promise.resolve();
 
 const telegramCommands = [
   { command: "start", description: "Mở menu Hermes" },
+  { command: "today", description: "Xem tổng hợp hôm nay" },
   { command: "lich", description: "Xem lịch làm việc" },
+  { command: "truc", description: "Xem lịch trực từ Google Sheet" },
   { command: "kpi", description: "Xem KPI tháng và năm" },
   { command: "sethermes", description: "Lưu tài khoản Hermes" },
   { command: "deletehermes", description: "Xóa tài khoản Hermes" },
@@ -86,12 +88,13 @@ async function isAllowedUser(ctx) {
 
 function keyboard() {
   return Markup.inlineKeyboard([
+    [Markup.button.callback("📌 Tổng hợp hôm nay", "action:today_dashboard")],
     [
       Markup.button.callback("⬅️ Hôm qua", "action:hermes_work_offset:-1"),
       Markup.button.callback("📅 Hôm nay", "action:hermes_work_offset:0"),
       Markup.button.callback("➡️ Ngày mai", "action:hermes_work_offset:1")
     ],
-    [Markup.button.callback("🗓️ Lịch cả tuần", "action:hermes_work_week")],
+    [Markup.button.callback("🗓️ Lịch cả tuần", "action:hermes_work_week"), Markup.button.callback("📋 Lịch trực", "action:duty_today")],
     [Markup.button.callback("🎯 KPI tháng/năm", "action:hermes_kpi")],
     [Markup.button.callback("🔐 Tài khoản Hermes", "action:hermes_account"), Markup.button.callback("🗑️ Xoá TK Hermes", "action:delete_hermes")],
     [Markup.button.callback("👤 Check user hiện tại", "action:hermes_current_user")]
@@ -174,11 +177,109 @@ function formatHermesAccountStatus(account) {
   ].join("\n");
 }
 
+const DUTY_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1gWlj6NObCw0AMKBK5GW_2_mCPs6WoF73bNe7QgkGBDc/export?format=csv&gid=1110843393";
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function parseCsvLine(line) {
+  const cells = [];
+  let current = "";
+  let inQuotes = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === ',' && !inQuotes) {
+      cells.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current);
+  return cells;
+}
+
+function parseDutySheetDate(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+  const [, dd, mm, yyyy] = match;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+async function fetchDutyScheduleByDate(date = new Date()) {
+  const targetDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: config.timezoneId,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+
+  const response = await fetch(DUTY_SHEET_CSV_URL);
+  if (!response.ok) {
+    throw new Error(`Không tải được Google Sheet lịch trực (${response.status}).`);
+  }
+
+  const text = await response.text();
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  const parsedLines = lines.map(parseCsvLine);
+  const row = parsedLines.find((cells) => parseDutySheetDate(cells[0]) === targetDate);
+  if (!row) {
+    return { ok: true, targetDate, found: false };
+  }
+
+  return {
+    ok: true,
+    targetDate,
+    found: true,
+    weekday: row[1] || "",
+    dutyNight: row.slice(2, 7).map((item) => String(item || "").trim()).filter(Boolean),
+    note: String(row[7] || "").trim(),
+    afterHoursServer: String(row[8] || "").trim(),
+    morning: row.slice(9, 14).map((item) => String(item || "").trim()).filter(Boolean),
+    noon: row.slice(14, 23).map((item) => String(item || "").trim()).filter(Boolean)
+  };
+}
+
+function formatDutyLine(label, values = []) {
+  if (!values.length) return `• ${label}: -`;
+  return `• ${label}: <b>${escapeHtml(values.join(" • "))}</b>`;
+}
+
+function formatDutyScheduleHtml(result) {
+  if (!result?.found) {
+    return [
+      "📋 <b>Lịch trực</b>",
+      "Không thấy dòng lịch trực cho ngày này trong Google Sheet."
+    ].join("\n");
+  }
+
+  const note = result.note ? `• Ghi chú: ${escapeHtml(result.note).replace(/\n/g, " | ")}` : "• Ghi chú: -";
+  const server = `• Server ngoài giờ: <b>${escapeHtml(result.afterHoursServer || "-")}</b>`;
+
+  return [
+    "📋 <b>Lịch trực</b>",
+    `${escapeHtml(result.targetDate)}${result.weekday ? ` • ${escapeHtml(result.weekday)}` : ""}`,
+    formatDutyLine("Trực tối", result.dutyNight),
+    formatDutyLine("8h sáng", result.morning),
+    formatDutyLine("Trực trưa", result.noon),
+    server,
+    note
+  ].join("\n");
 }
 
 function formatWeekScheduleEntryHtml(entry, index) {
@@ -285,10 +386,10 @@ function helpText(telegramId) {
     ...quote,
     "",
     "<b>Xem nhanh</b>",
-    "Hôm qua • Hôm nay • Ngày mai • Cả tuần",
+    "Tổng hợp hôm nay • Hôm qua • Hôm nay • Ngày mai • Cả tuần • Lịch trực",
     "",
     "<b>Lệnh dùng nhanh</b>",
-    "<code>/lich</code> • <code>/lich mai</code> • <code>/lich 28/04</code>",
+    "<code>/today</code> • <code>/truc</code> • <code>/lich</code> • <code>/lich mai</code>",
     "<code>/sethermes</code> để lưu tài khoản",
     "",
     `ID: <code>${telegramId}</code>`
@@ -530,7 +631,6 @@ function formatWorkloadTable(item) {
 
 function formatKpiMonthTelegramHtml(monthData, item) {
   const monthLabel = String(monthData.month || "").replace("_", "/");
-  const kpiSumPercent = Number(item.kpiSum || 0) * 100;
   return [
     `🎯 <b>KPI tháng ${escapeHtml(monthLabel)}</b>`,
     `👤 <b>${escapeHtml(item.support)}</b>`,
@@ -605,6 +705,75 @@ async function showKpiMonth(ctx, month) {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...kpiKeyboard(result.months || [])
+  });
+}
+
+async function showDutySchedule(ctx, date = new Date()) {
+  try {
+    const result = await fetchDutyScheduleByDate(date);
+    await ctx.reply(formatDutyScheduleHtml(result), {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      ...keyboard()
+    });
+  } catch (error) {
+    await ctx.reply(`Không tải được lịch trực Google Sheet.\n${String(error.message || error).slice(0, 700)}`, keyboard());
+  }
+}
+
+async function showTodayDashboard(ctx) {
+  const date = new Date();
+  const sections = ["📌 <b>Tổng hợp hôm nay</b>"];
+
+  try {
+    const duty = await fetchDutyScheduleByDate(date);
+    sections.push("", formatDutyScheduleHtml(duty));
+  } catch (error) {
+    sections.push("", `📋 <b>Lịch trực</b>\nKhông tải được lịch trực: ${escapeHtml(String(error.message || error))}`);
+  }
+
+  const account = await getHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
+  if (account?.hermesUsername) {
+    const work = await enqueue(() => getWorkScheduleByDay({
+      username: account.hermesUsername,
+      password: account.hermesPassword,
+      date,
+      storageState: account.hermesSession || null
+    }));
+
+    if (work.storageState) {
+      await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: work.storageState });
+    }
+
+    if (work.ok) {
+      sections.push("", formatWorkScheduleResult(work));
+    } else if (work.otpRequired) {
+      sections.push("", "🗓️ <b>Lịch Hermes</b>\nHermes đang đòi OTP, nên phần lịch làm việc chưa kéo ra được.");
+    } else {
+      sections.push("", `🗓️ <b>Lịch Hermes</b>\nKhông tải được lịch Hermes: ${escapeHtml(String(work.message || "Lỗi không xác định"))}`);
+    }
+
+    const kpi = await enqueue(() => getKpiSummary());
+    if (kpi?.ok) {
+      const nowMonth = new Intl.DateTimeFormat("en-CA", {
+        timeZone: config.timezoneId,
+        year: "numeric",
+        month: "2-digit"
+      }).format(date).replace("-", "_");
+      const monthData = (kpi.monthly || []).find((item) => item.month === nowMonth);
+      const row = monthData?.records?.find((entry) => String(entry.support || "").trim().toLowerCase() === String(account.hermesUsername || "").trim().toLowerCase());
+      if (monthData && row) {
+        sections.push("", formatKpiMonthTelegramHtml(monthData, row));
+      }
+    }
+  } else {
+    sections.push("", "🗓️ <b>Lịch Hermes + KPI</b>\nChưa lưu tài khoản Hermes. Gửi <code>/sethermes user password</code> để bot ghép đủ dashboard cho Sếp.");
+  }
+
+  await ctx.reply(sections.join("\n"), {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...keyboard()
   });
 }
 
@@ -719,6 +888,14 @@ bot.command("sethermes", async (ctx) => {
   await ctx.reply(result.ok ? result.message : `Lưu rồi nhưng test Hermes lỗi: ${result.message}`, keyboard());
 });
 
+bot.command("today", async (ctx) => {
+  await showTodayDashboard(ctx);
+});
+
+bot.command("truc", async (ctx) => {
+  await showDutySchedule(ctx, new Date());
+});
+
 bot.command("kpi", async (ctx) => {
   await showKpiSummary(ctx);
 });
@@ -765,6 +942,16 @@ bot.action(/^action:hermes_work_date:(\d{4}-\d{2}-\d{2}):(-?\d+)$/, async (ctx) 
   const offset = Number(ctx.match?.[2] || 0);
   await ctx.answerCbQuery("Đang lấy lịch...");
   await showWorkSchedule(ctx, getRelativeWorkScheduleDate(offset, baseDate || new Date()));
+});
+
+bot.action("action:today_dashboard", async (ctx) => {
+  await ctx.answerCbQuery("Đang ghép dashboard hôm nay...");
+  await showTodayDashboard(ctx);
+});
+
+bot.action("action:duty_today", async (ctx) => {
+  await ctx.answerCbQuery("Đang lấy lịch trực...");
+  await showDutySchedule(ctx, new Date());
 });
 
 bot.action("action:hermes_work_week", async (ctx) => {
