@@ -458,6 +458,15 @@ function formatPercentLine(label, ratio) {
   return `${label}: <b>${percent.toFixed(2)}%</b>`;
 }
 
+function formatKpiBar(label, ratio, icon = "📈") {
+  const percent = Number(ratio || 0) * 100;
+  const normalized = Math.max(0, Math.min(percent, 100));
+  const total = 10;
+  const filled = Math.round((normalized / 100) * total);
+  const bar = "🟩".repeat(filled) + "⬜".repeat(Math.max(0, total - filled));
+  return `${icon} ${label}: <b>${percent.toFixed(2)}%</b>\n${bar}`;
+}
+
 function formatMetricValue(value, digits = 2) {
   return Number(value || 0).toFixed(digits);
 }
@@ -510,9 +519,11 @@ function formatKpiMonthTelegramHtml(monthData, item) {
     `👤 <b>${escapeHtml(item.support)}</b>`,
     "",
     "📊 <b>KPI</b>",
-    `• ${formatPercentLine("🚀 KPI Deploy", item.deployPct)}`,
-    `• ${formatPercentLine("🎧 KPI Hotline", item.hotlinePct)}`,
-    `• 🧮 KPI SUM: <b>${kpiSumPercent.toFixed(2)}%</b>`,
+    formatKpiBar("Hotline", item.hotlinePct, "🎧"),
+    "",
+    formatKpiBar("Deploy", item.deployPct, "🚀"),
+    "",
+    formatKpiBar("KPI tổng", item.kpiSum, "🧮"),
     "",
     "💰 <b>Tính lương</b>",
     `• 💵 POINT Thực tế (1): <b>${formatMetricValue(item.pointActual)}</b>`,
