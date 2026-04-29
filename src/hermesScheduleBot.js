@@ -233,18 +233,46 @@ async function fetchDutyScheduleByDate(date = new Date()) {
     return { ok: true, targetDate, found: false };
   }
 
+  const weekday = String(row[1] || "").trim();
+  const note = String(row[7] || "").trim();
+  const dutyNight = row.slice(2, 7).map((item) => String(item || "").trim()).filter(Boolean);
+  const afterHoursServer = String(row[8] || "").trim();
+  const morningPrimary = String(row[9] || "").trim();
+  const morningSupport = row.slice(10, 14).map((item) => String(item || "").trim()).filter(Boolean);
+  const noon = row.slice(14, 23).map((item) => String(item || "").trim()).filter(Boolean);
+  const isHoliday = /nghỉ lễ/i.test(note);
+  const isSundayShift = /chủ nhật/i.test(weekday);
+
   return {
     ok: true,
     targetDate,
     found: true,
-    weekday: row[1] || "",
-    dutyNight: row.slice(2, 7).map((item) => String(item || "").trim()).filter(Boolean),
-    note: String(row[7] || "").trim(),
-    afterHoursServer: String(row[8] || "").trim(),
-    morningPrimary: String(row[9] || "").trim(),
-    morningSupport: row.slice(10, 14).map((item) => String(item || "").trim()).filter(Boolean),
-    noon: row.slice(14, 23).map((item) => String(item || "").trim()).filter(Boolean)
+    weekday,
+    note,
+    dutyNight,
+    afterHoursServer,
+    morningPrimary,
+    morningSupport,
+    noon,
+    isHoliday,
+    isSundayShift
   };
+}
+
+function formatDutyHeader(result) {
+  const displayDate = (() => {
+    const match = String(result.targetDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return escapeHtml(result.targetDate || "");
+    const [, yyyy, mm, dd] = match;
+    return `${dd}/${mm}/${yyyy}`;
+  })();
+
+  return [
+    "<pre>╔════════════════════╗",
+    `📅 LỊCH TRỰC NGÀY ${displayDate}`,
+    `🗓 ${escapeHtml(result.weekday || "")}`,
+    "╚════════════════════╝"
+  ];
 }
 
 function formatDutyPeopleLines(values = []) {
@@ -305,6 +333,68 @@ function formatDutyNoteLines(note) {
   return lines;
 }
 
+function formatHolidayDutyScheduleHtml(result) {
+  const lines = String(result.note || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line !== "-------------------");
+
+  const sections = [];
+  let current = null;
+  for (const line of lines) {
+    const match = line.match(/^(Ca\s*\d+[^:]*|Nghỉ lễ[^:]*):\s*(.*)$/i);
+    if (match) {
+      current = { title: match[1].trim(), items: [] };
+      if (match[2]?.trim()) current.items.push(match[2].trim());
+      sections.push(current);
+      continue;
+    }
+    if (!current) {
+      current = { title: line, items: [] };
+      sections.push(current);
+      continue;
+    }
+    current.items.push(line);
+  }
+
+  const body = [];
+  sections.forEach((section, sectionIndex) => {
+    if (sectionIndex > 0) body.push("");
+    body.push(`🎊 ${escapeHtml(section.title.toUpperCase())}`);
+    if (!section.items.length) {
+      body.push("┗ -");
+      return;
+    }
+    section.items.forEach((item, index) => {
+      body.push(`${index === section.items.length - 1 ? "┗" : "┣"} ${escapeHtml(item)}`);
+    });
+  });
+
+  return [
+    ...formatDutyHeader(result),
+    "",
+    ...body,
+    "</pre>"
+  ].join("\n");
+}
+
+function formatSundayDutyScheduleHtml(result) {
+  return [
+    ...formatDutyHeader(result),
+    "",
+    "☀️ CA CHỦ NHẬT",
+    ...formatDutyPeopleLines(result.dutyNight),
+    "",
+    "🖥 SERVER",
+    ...formatDutyPeopleLines(result.afterHoursServer ? [result.afterHoursServer] : []),
+    "",
+    "📝 GHI CHÚ",
+    "",
+    ...formatDutyNoteLines(result.note)
+  ].join("\n") + "\n</pre>";
+}
+
 function formatDutyScheduleHtml(result) {
   if (!result?.found) {
     return [
@@ -313,18 +403,16 @@ function formatDutyScheduleHtml(result) {
     ].join("\n");
   }
 
-  const displayDate = (() => {
-    const match = String(result.targetDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return escapeHtml(result.targetDate || "");
-    const [, yyyy, mm, dd] = match;
-    return `${dd}/${mm}/${yyyy}`;
-  })();
+  if (result.isHoliday) {
+    return formatHolidayDutyScheduleHtml(result);
+  }
+
+  if (result.isSundayShift) {
+    return formatSundayDutyScheduleHtml(result);
+  }
 
   return [
-    "<pre>╔════════════════════╗",
-    `📅 LỊCH TRỰC NGÀY ${displayDate}`,
-    `🗓 ${escapeHtml(result.weekday || "")}`,
-    "╚════════════════════╝",
+    ...formatDutyHeader(result),
     "",
     "🌙 TRỰC TỐI",
     ...formatDutyPeopleLines(result.dutyNight),
