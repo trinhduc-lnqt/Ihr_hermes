@@ -247,27 +247,62 @@ async function fetchDutyScheduleByDate(date = new Date()) {
   };
 }
 
-function formatDutyPeople(values = []) {
+function formatDutyPeopleLines(values = []) {
   const items = values.map((item) => String(item || "").trim()).filter(Boolean);
-  if (!items.length) return "-";
-  return `<b>${escapeHtml(items.join(" • "))}</b>`;
+  if (!items.length) {
+    return ["┗ 👤 -"];
+  }
+  return items.map((item, index) => `${index === items.length - 1 ? "┗" : "┣"} 👤 ${escapeHtml(item)}`);
 }
 
-function formatDutyValue(value) {
-  return `<b>${escapeHtml(String(value || "-").trim() || "-")}</b>`;
+function splitNoteGroupItems(rawValue) {
+  return String(rawValue || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
-function formatDutyNoteLines(note) {
+function parseDutyNoteGroups(note) {
+  const groups = [];
   const lines = String(note || "")
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
 
-  if (!lines.length) {
-    return ["   • -"];
+  for (const line of lines) {
+    const match = line.match(/^([^:]+):\s*(.*)$/);
+    if (!match) {
+      groups.push({ title: line, items: [] });
+      continue;
+    }
+    const [, title, value] = match;
+    groups.push({ title: title.trim(), items: splitNoteGroupItems(value) });
   }
 
-  return lines.map((line) => `   • ${escapeHtml(line)}`);
+  return groups;
+}
+
+function formatDutyNoteLines(note) {
+  const groups = parseDutyNoteGroups(note);
+  if (!groups.length) {
+    return ["┗ -"];
+  }
+
+  const lines = [];
+  groups.forEach((group, groupIndex) => {
+    if (groupIndex > 0) {
+      lines.push("");
+    }
+    lines.push(`📍 ${escapeHtml(group.title)}`);
+    if (!group.items.length) {
+      lines.push("┗ -");
+      return;
+    }
+    group.items.forEach((item, index) => {
+      lines.push(`${index === group.items.length - 1 ? "┗" : "┣"} ${escapeHtml(item)}`);
+    });
+  });
+  return lines;
 }
 
 function formatDutyScheduleHtml(result) {
@@ -278,21 +313,38 @@ function formatDutyScheduleHtml(result) {
     ].join("\n");
   }
 
+  const displayDate = (() => {
+    const match = String(result.targetDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return escapeHtml(result.targetDate || "");
+    const [, yyyy, mm, dd] = match;
+    return `${dd}/${mm}/${yyyy}`;
+  })();
+
   return [
-    "🗂️ <b>LỊCH TRỰC</b>",
-    `┌ 📆 <b>${escapeHtml(result.targetDate)}</b>${result.weekday ? ` • <b>${escapeHtml(result.weekday)}</b>` : ""}`,
-    `├ 🌃 <b>Trực tối</b>`,
-    `│   ${formatDutyPeople(result.dutyNight)}`,
-    `├ 🌄 <b>8h sáng</b>`,
-    `│   ${formatDutyPeople(result.morningPrimary ? [result.morningPrimary] : [])}`,
-    `├ 🏬 <b>Hỗ trợ trực hành chính</b>`,
-    `│   ${formatDutyPeople(result.morningSupport)}`,
-    `├ 🍛 <b>Trực trưa</b>`,
-    `│   ${formatDutyPeople(result.noon)}`,
-    `├ 🖥️ <b>Server ngoài giờ</b>`,
-    `│   ${formatDutyValue(result.afterHoursServer || "-")}`,
-    `└ 🧾 <b>Ghi chú</b>`,
-    ...formatDutyNoteLines(result.note)
+    "<pre>╔════════════════════╗",
+    `📅 LỊCH TRỰC NGÀY ${displayDate}`,
+    `🗓 ${escapeHtml(result.weekday || "")}`,
+    "╚════════════════════╝",
+    "",
+    "🌙 TRỰC TỐI",
+    ...formatDutyPeopleLines(result.dutyNight),
+    "",
+    "🌅 CA 8H SÁNG",
+    ...formatDutyPeopleLines(result.morningPrimary ? [result.morningPrimary] : []),
+    "",
+    "🏢 HỖ TRỢ HÀNH CHÍNH",
+    ...formatDutyPeopleLines(result.morningSupport),
+    "",
+    "🍛 TRỰC TRƯA",
+    ...formatDutyPeopleLines(result.noon),
+    "",
+    "🖥 SERVER NGOÀI GIỜ",
+    ...formatDutyPeopleLines(result.afterHoursServer ? [result.afterHoursServer] : []),
+    "",
+    "📝 GHI CHÚ",
+    "",
+    ...formatDutyNoteLines(result.note),
+    "</pre>"
   ].join("\n");
 }
 
