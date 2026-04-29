@@ -264,6 +264,18 @@ async function replyFresh(ctx, text, extra = undefined) {
   return sent;
 }
 
+async function sendTempMessage(ctx, text, extra = undefined) {
+  const sent = await ctx.reply(text, extra);
+  return sent?.message_id || null;
+}
+
+async function deleteTempMessage(ctx, messageId) {
+  if (!ctx.chat?.id || !messageId) return;
+  try {
+    await ctx.telegram.deleteMessage(ctx.chat.id, messageId);
+  } catch {}
+}
+
 const DUTY_SHEET_GVIZ_URL = "https://docs.google.com/spreadsheets/d/1gWlj6NObCw0AMKBK5GW_2_mCPs6WoF73bNe7QgkGBDc/gviz/tq?tqx=out:json&gid=1110843393";
 
 function escapeHtml(value) {
@@ -773,32 +785,36 @@ async function showWorkSchedule(ctx, date = new Date()) {
   const account = await getHermesAccountOrReply(ctx);
   if (!account) return;
 
-  await ctx.reply("Đang kiểm tra lịch làm việc Hermes...");
-  const result = await enqueue(() => getWorkScheduleByDay({
-    username: account.hermesUsername,
-    password: account.hermesPassword,
-    date,
-    storageState: account.hermesSession || null
-  }));
+  const loadingMessageId = await sendTempMessage(ctx, "Đang kiểm tra lịch làm việc Hermes...");
+  try {
+    const result = await enqueue(() => getWorkScheduleByDay({
+      username: account.hermesUsername,
+      password: account.hermesPassword,
+      date,
+      storageState: account.hermesSession || null
+    }));
 
-  if (result.sessionExpired) await clearHermesSession(ctx.chat.id);
-  if (result.otpRequired) {
-    pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_otp", date });
-    await ctx.reply("Hermes yêu cầu OTP. Sếp gửi mã OTP mới nhất, em sẽ xác nhận rồi lưu phiên. /cancel để huỷ.");
-    return;
+    if (result.sessionExpired) await clearHermesSession(ctx.chat.id);
+    if (result.otpRequired) {
+      pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_otp", date });
+      await replyFresh(ctx, "Hermes yêu cầu OTP. Sếp gửi mã OTP mới nhất, em sẽ xác nhận rồi lưu phiên. /cancel để huỷ.");
+      return;
+    }
+    if (!result.ok) {
+      await replyFresh(ctx, `Không lấy được lịch làm việc.\n${String(result.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
+      return;
+    }
+    if (result.storageState) {
+      await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: result.storageState });
+    }
+    const cacheKey = rememberWorkSchedule(ctx, result);
+    await replyFresh(ctx, formatWorkScheduleResult(result), {
+      parse_mode: "HTML",
+      ...workScheduleKeyboard(result, cacheKey)
+    });
+  } finally {
+    await deleteTempMessage(ctx, loadingMessageId);
   }
-  if (!result.ok) {
-    await ctx.reply(`Không lấy được lịch làm việc.\n${String(result.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
-    return;
-  }
-  if (result.storageState) {
-    await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: result.storageState });
-  }
-  const cacheKey = rememberWorkSchedule(ctx, result);
-  await replyFresh(ctx, formatWorkScheduleResult(result), {
-    parse_mode: "HTML",
-    ...workScheduleKeyboard(result, cacheKey)
-  });
 }
 
 function kpiKeyboard(months = []) {
@@ -913,13 +929,14 @@ function formatKpiMonthTelegramHtml(monthData, item) {
 }
 
 async function showKpiSummary(ctx) {
-  await replyFresh(ctx, "Đang tải danh sách tháng KPI...");
-  const result = await enqueue(() => getKpiSummary());
-  if (!result?.ok) {
-    await ctx.reply(`Không tải được KPI.\n${String(result?.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
-    return;
-  }
-  await replyFresh(ctx, [
+  const loadingMessageId = await sendTempMessage(ctx, "Đang tải danh sách tháng KPI...");
+  try {
+    const result = await enqueue(() => getKpiSummary());
+    if (!result?.ok) {
+      await replyFresh(ctx, `Không tải được KPI.\n${String(result?.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
+      return;
+    }
+    await replyFresh(ctx, [
     "🎯 <b>KPI theo tháng</b>",
     "",
     "Theo dõi KPI đều để biết mình đang bứt tốc hay bị hụt hơi trong tháng này.",
@@ -937,10 +954,13 @@ async function showKpiSummary(ctx) {
     "",
     "Giữ nhịp tốt từng tháng thì cuối kỳ nhìn KPI mới đã mắt 💪"
   ].join("\n"), {
-    parse_mode: "HTML",
-    disable_web_page_preview: true,
-    ...kpiKeyboard(result.months || [])
-  });
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      ...kpiKeyboard(result.months || [])
+    });
+  } finally {
+    await deleteTempMessage(ctx, loadingMessageId);
+  }
 }
 
 async function showKpiMonth(ctx, month) {
@@ -1057,40 +1077,44 @@ async function showWorkScheduleWeek(ctx, date = new Date()) {
   const account = await getHermesAccountOrReply(ctx);
   if (!account) return;
 
-  await ctx.reply("Đang kiểm tra lịch cả tuần Hermes...");
-  const results = [];
-  let storageState = account.hermesSession || null;
+  const loadingMessageId = await sendTempMessage(ctx, "Đang kiểm tra lịch cả tuần Hermes...");
+  try {
+    const results = [];
+    let storageState = account.hermesSession || null;
 
-  for (let offset = 0; offset < 7; offset += 1) {
-    const targetDate = getRelativeWorkScheduleDate(offset, getRelativeWorkScheduleDate(-(new Date(date).getDay() || 7) + 1, date));
-    const result = await enqueue(() => getWorkScheduleByDay({
-      username: account.hermesUsername,
-      password: account.hermesPassword,
-      date: targetDate,
-      storageState
-    }));
+    for (let offset = 0; offset < 7; offset += 1) {
+      const targetDate = getRelativeWorkScheduleDate(offset, getRelativeWorkScheduleDate(-(new Date(date).getDay() || 7) + 1, date));
+      const result = await enqueue(() => getWorkScheduleByDay({
+        username: account.hermesUsername,
+        password: account.hermesPassword,
+        date: targetDate,
+        storageState
+      }));
 
-    if (result.sessionExpired) await clearHermesSession(ctx.chat.id);
-    if (result.otpRequired) {
-      pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_otp", date: targetDate });
-      await ctx.reply("Hermes yêu cầu OTP giữa lúc lấy lịch tuần. Sếp gửi mã OTP mới nhất rồi bấm lại giúp em. /cancel để huỷ.");
-      return;
+      if (result.sessionExpired) await clearHermesSession(ctx.chat.id);
+      if (result.otpRequired) {
+        pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_otp", date: targetDate });
+        await replyFresh(ctx, "Hermes yêu cầu OTP giữa lúc lấy lịch tuần. Sếp gửi mã OTP mới nhất rồi bấm lại giúp em. /cancel để huỷ.");
+        return;
+      }
+      if (!result.ok) {
+        await replyFresh(ctx, `Không lấy được lịch tuần.\n${String(result.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
+        return;
+      }
+      if (result.storageState) {
+        storageState = result.storageState;
+        await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState });
+      }
+      results.push(result);
     }
-    if (!result.ok) {
-      await ctx.reply(`Không lấy được lịch tuần.\n${String(result.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
-      return;
-    }
-    if (result.storageState) {
-      storageState = result.storageState;
-      await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState });
-    }
-    results.push(result);
+
+    await replyFresh(ctx, formatWeekScheduleResult(results), {
+      parse_mode: "HTML",
+      ...keyboard()
+    });
+  } finally {
+    await deleteTempMessage(ctx, loadingMessageId);
   }
-
-  await replyFresh(ctx, formatWeekScheduleResult(results), {
-    parse_mode: "HTML",
-    ...keyboard()
-  });
 }
 
 bot.use(guard);
@@ -1363,7 +1387,7 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
 
   const account = await getHermesAccountOrReply(ctx);
   if (!account) return;
-  await ctx.reply("Đang lấy chi tiết PYC thật từ Hermes...");
+  const loadingMessageId = await sendTempMessage(ctx, "Đang lấy chi tiết PYC thật từ Hermes...");
   const detail = await enqueue(() => getRequestOrderDetailById({
     username: account.hermesUsername,
     password: account.hermesPassword,
@@ -1371,10 +1395,12 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
     storageState: account.hermesSession || null
   }));
 
+  await deleteTempMessage(ctx, loadingMessageId);
+
   if (detail.sessionExpired) await clearHermesSession(ctx.chat.id);
   if (detail.otpRequired) {
     pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_otp", date: cached.result.targetDate });
-    await ctx.reply("Phiên Hermes đã hết hạn nên Hermes yêu cầu OTP lại. Sếp gửi mã OTP mới nhất rồi bấm lịch lại nhé. /cancel để huỷ.");
+    await replyFresh(ctx, "Phiên Hermes đã hết hạn nên Hermes yêu cầu OTP lại. Sếp gửi mã OTP mới nhất rồi bấm lịch lại nhé. /cancel để huỷ.");
     return;
   }
   if (!detail.ok) {
@@ -1388,13 +1414,7 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
       sessionExpired: Boolean(detail.sessionExpired),
       otpRequired: Boolean(detail.otpRequired)
     });
-    await ctx.reply([
-      "Không lấy được chi tiết PYC thật từ Hermes.",
-      String(detail.message || "Lỗi không xác định").slice(0, 700),
-      "",
-      "Em hiển thị chi tiết lịch đang có trước để Sếp không bị đứng flow."
-    ].join("\n"), workScheduleDetailKeyboard(cached.result, cacheKey, entry));
-    await ctx.reply(formatWorkScheduleNoteOnlyDetail(entry, cached.result), {
+    await replyFresh(ctx, formatWorkScheduleNoteOnlyDetail(entry, cached.result), {
       parse_mode: "HTML",
       ...workScheduleDetailKeyboard(cached.result, cacheKey, entry)
     });
@@ -1403,7 +1423,7 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
   if (detail.storageState) {
     await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: detail.storageState });
   }
-  await ctx.reply(formatRequestOrderDetailHtml(detail.order, { checkedAt: detail.checkedAt }), {
+  await replyFresh(ctx, formatRequestOrderDetailHtml(detail.order, { checkedAt: detail.checkedAt }), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...workScheduleDetailKeyboard(cached.result, cacheKey, entry, detail.order)
@@ -1418,7 +1438,7 @@ bot.action(/^action:hermes_work_list:(.+)$/, async (ctx) => {
     await ctx.reply("Dữ liệu lịch đã hết hạn. Sếp bấm lấy lịch lại nhé.", keyboard());
     return;
   }
-  await ctx.reply(formatWorkScheduleResult(cached.result), {
+  await replyFresh(ctx, formatWorkScheduleResult(cached.result), {
     parse_mode: "HTML",
     ...workScheduleKeyboard(cached.result, cacheKey)
   });
@@ -1433,19 +1453,20 @@ bot.on("text", async (ctx) => {
 
   if (pending.stage === "hermes_otp") {
     const otp = ctx.message.text.trim();
-    await ctx.reply("Đang xác nhận OTP Hermes...");
+    const loadingMessageId = await sendTempMessage(ctx, "Đang xác nhận OTP Hermes...");
     const result = await enqueue(() => submitHermesOtp(otp));
+    await deleteTempMessage(ctx, loadingMessageId);
     if (result.otpRequired) {
-      await ctx.reply(result.message);
+      await replyFresh(ctx, result.message);
       return;
     }
     pendingActions.delete(ctx.chat.id);
     if (!result.ok) {
-      await ctx.reply(`Xác nhận OTP lỗi: ${result.message}`, keyboard());
+      await replyFresh(ctx, `Xác nhận OTP lỗi: ${result.message}`, keyboard());
       return;
     }
     if (result.storageState) await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: result.storageState });
-    await ctx.reply(result.message, keyboard());
+    await replyFresh(ctx, result.message, keyboard());
     return;
   }
 
@@ -1462,20 +1483,21 @@ bot.on("text", async (ctx) => {
 
   if (pending.stage === "hermes_schedule_otp") {
     const otp = ctx.message.text.trim();
-    await ctx.reply("Đang xác nhận OTP Hermes và lấy lịch...");
+    const loadingMessageId = await sendTempMessage(ctx, "Đang xác nhận OTP Hermes và lấy lịch...");
     const result = await enqueue(() => submitHermesOtpAndGetWorkSchedule(otp, { date: pending.date }));
+    await deleteTempMessage(ctx, loadingMessageId);
     if (result.otpRequired) {
-      await ctx.reply(result.message);
+      await replyFresh(ctx, result.message);
       return;
     }
     pendingActions.delete(ctx.chat.id);
     if (!result.ok) {
-      await ctx.reply(`Xác nhận OTP/lấy lịch lỗi: ${result.message}`, keyboard());
+      await replyFresh(ctx, `Xác nhận OTP/lấy lịch lỗi: ${result.message}`, keyboard());
       return;
     }
     if (result.storageState) await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: result.storageState });
     const cacheKey = rememberWorkSchedule(ctx, result);
-    await ctx.reply(formatWorkScheduleResult(result), {
+    await replyFresh(ctx, formatWorkScheduleResult(result), {
       parse_mode: "HTML",
       ...workScheduleKeyboard(result, cacheKey)
     });
@@ -1508,14 +1530,15 @@ bot.on("text", async (ctx) => {
     const hermesPassword = parts.slice(1).join(" ");
     await saveHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id, telegramUser: ctx.from, hermesUsername, hermesPassword });
     pendingActions.delete(ctx.chat.id);
-    await ctx.reply(`Đã lưu tài khoản Hermes cho ${hermesUsername}. Đang test đăng nhập...`);
+    const loadingMessageId = await sendTempMessage(ctx, `Đã lưu tài khoản Hermes cho ${hermesUsername}. Đang test đăng nhập...`);
     const result = await enqueue(() => validateHermesLogin({ username: hermesUsername, password: hermesPassword, keepOtpSession: true }));
+    await deleteTempMessage(ctx, loadingMessageId);
     if (result.otpRequired) {
       pendingActions.set(ctx.chat.id, { stage: "hermes_otp" });
-      await ctx.reply("Hermes đang yêu cầu OTP. Sếp gửi mã OTP vào tin nhắn tiếp theo nhé. /cancel để huỷ.");
+      await replyFresh(ctx, "Hermes đang yêu cầu OTP. Sếp gửi mã OTP vào tin nhắn tiếp theo nhé. /cancel để huỷ.");
       return;
     }
-    await ctx.reply(result.ok ? result.message : `Lưu rồi nhưng test Hermes lỗi: ${result.message}`, keyboard());
+    await replyFresh(ctx, result.ok ? result.message : `Lưu rồi nhưng test Hermes lỗi: ${result.message}`, keyboard());
   }
 });
 
