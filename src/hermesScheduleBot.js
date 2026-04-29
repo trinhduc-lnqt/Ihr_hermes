@@ -326,9 +326,10 @@ function formatDutyHeader(result) {
   ];
 }
 
-function formatDutyInlinePeople(values = []) {
+function formatDutyInlinePeople(values = [], options = {}) {
   const items = values.map((item) => String(item || "").trim()).filter(Boolean);
-  return items.length ? escapeHtml(items.join(" • ")) : "-";
+  const joined = items.length ? escapeHtml(items.join(" • ")) : "-";
+  return options.bold ? `<b>${joined}</b>` : joined;
 }
 
 function formatDutyAlignedLine(icon, label, value) {
@@ -415,8 +416,8 @@ function formatSundayDutyScheduleHtml(result) {
   shifts.forEach((shift, shiftIndex) => {
     if (shiftIndex > 0) lines.push("");
     const label = /^.*ca\s*2/i.test(String(shift.label || "")) ? "Trực ca 2" : "Trực ca 1";
-    lines.push(formatDutyAlignedLine(/^.*ca\s*2/i.test(String(shift.label || "")) ? "🌙" : "☀️", label, formatDutyInlinePeople(shift.people)));
-    lines.push(formatDutyAlignedLine("🖥", "Trực server", formatDutyInlinePeople(shift.server ? [shift.server] : [])));
+    lines.push(formatDutyAlignedLine(/^.*ca\s*2/i.test(String(shift.label || "")) ? "🌙" : "☀️", label, formatDutyInlinePeople(shift.people, { bold: true })));
+    lines.push(formatDutyAlignedLine("🖥", "Trực server", formatDutyInlinePeople(shift.server ? [shift.server] : [], { bold: true })));
     if (shift.note) {
       const noteValue = String(shift.note || "").replace(/^Server\s*:\s*/i, "").trim() || "-";
       lines.push(formatDutyAlignedLine("📝", "Ghi chú", escapeHtml(noteValue)));
@@ -445,11 +446,11 @@ function formatDutyScheduleHtml(result) {
   return [
     ...formatDutyHeader(result),
     "",
-    formatDutyAlignedLine("🌙", "Trực tối", formatDutyInlinePeople(result.dutyNight)),
-    formatDutyAlignedLine("🌅", "Trực sáng", formatDutyInlinePeople(result.morningPrimary ? [result.morningPrimary] : [])),
-    formatDutyAlignedLine("🏢", "Trực hành chính", formatDutyInlinePeople(result.morningSupport)),
-    formatDutyAlignedLine("🍛", "Trực trưa", formatDutyInlinePeople(result.noon)),
-    formatDutyAlignedLine("🖥", "Trực server", formatDutyInlinePeople(result.afterHoursServer ? [result.afterHoursServer] : [])),
+    formatDutyAlignedLine("🌙", "Trực tối", formatDutyInlinePeople(result.dutyNight, { bold: true })),
+    formatDutyAlignedLine("🌅", "Trực sáng", formatDutyInlinePeople(result.morningPrimary ? [result.morningPrimary] : [], { bold: true })),
+    formatDutyAlignedLine("🏢", "Trực hành chính", formatDutyInlinePeople(result.morningSupport, { bold: true })),
+    formatDutyAlignedLine("🍛", "Trực trưa", formatDutyInlinePeople(result.noon, { bold: true })),
+    formatDutyAlignedLine("🖥", "Trực server", formatDutyInlinePeople(result.afterHoursServer ? [result.afterHoursServer] : [], { bold: true })),
     "",
     "📝 Ghi chú",
     ...formatDutyNoteLines(result.note),
