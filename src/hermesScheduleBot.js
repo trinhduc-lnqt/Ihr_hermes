@@ -253,6 +253,10 @@ function formatDutyPeople(values = []) {
   return `<b>${escapeHtml(items.join(" • "))}</b>`;
 }
 
+function formatDutyValue(value) {
+  return `<b>${escapeHtml(String(value || "-").trim() || "-")}</b>`;
+}
+
 function formatDutyNoteLines(note) {
   const lines = String(note || "")
     .split(/\r?\n/)
@@ -260,13 +264,10 @@ function formatDutyNoteLines(note) {
     .filter(Boolean);
 
   if (!lines.length) {
-    return ["🧾 Ghi chú: -"];
+    return ["   • -"];
   }
 
-  return [
-    "🧾 Ghi chú:",
-    ...lines.map((line) => `   └─ ${escapeHtml(line)}`)
-  ];
+  return lines.map((line) => `   • ${escapeHtml(line)}`);
 }
 
 function formatDutyScheduleHtml(result) {
@@ -277,16 +278,20 @@ function formatDutyScheduleHtml(result) {
     ].join("\n");
   }
 
-  const server = `🖥️ Server ngoài giờ: <b>${escapeHtml(result.afterHoursServer || "-")}</b>`;
-
   return [
-    "🗂️ <b>Lịch trực</b>",
-    `📆 ${escapeHtml(result.targetDate)}${result.weekday ? ` • ${escapeHtml(result.weekday)}` : ""}`,
-    `🌃 Trực tối: ${formatDutyPeople(result.dutyNight)}`,
-    `🌄 8h sáng: ${formatDutyPeople(result.morningPrimary ? [result.morningPrimary] : [])}`,
-    `🏬 Hỗ trợ trực hành chính: ${formatDutyPeople(result.morningSupport)}`,
-    `🍛 Trực trưa: ${formatDutyPeople(result.noon)}`,
-    server,
+    "🗂️ <b>LỊCH TRỰC</b>",
+    `┌ 📆 <b>${escapeHtml(result.targetDate)}</b>${result.weekday ? ` • <b>${escapeHtml(result.weekday)}</b>` : ""}`,
+    `├ 🌃 <b>Trực tối</b>`,
+    `│   ${formatDutyPeople(result.dutyNight)}`,
+    `├ 🌄 <b>8h sáng</b>`,
+    `│   ${formatDutyPeople(result.morningPrimary ? [result.morningPrimary] : [])}`,
+    `├ 🏬 <b>Hỗ trợ trực hành chính</b>`,
+    `│   ${formatDutyPeople(result.morningSupport)}`,
+    `├ 🍛 <b>Trực trưa</b>`,
+    `│   ${formatDutyPeople(result.noon)}`,
+    `├ 🖥️ <b>Server ngoài giờ</b>`,
+    `│   ${formatDutyValue(result.afterHoursServer || "-")}`,
+    `└ 🧾 <b>Ghi chú</b>`,
     ...formatDutyNoteLines(result.note)
   ].join("\n");
 }
