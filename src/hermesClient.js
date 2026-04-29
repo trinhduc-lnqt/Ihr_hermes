@@ -2,6 +2,9 @@ import { chromium } from "playwright";
 
 import { config } from "./config.js";
 
+const KPI_API_URL = "http://127.0.0.1:8765/api/kpi";
+const KPI_ADMIN_AUTH = "Basic " + Buffer.from("admin:admin123").toString("base64");
+
 const USERNAME_SELECTORS = [
   "#txtuserid",
   "#txtUserId",
@@ -1956,6 +1959,29 @@ export function getRequestOrderIdFromScheduleEntry(entry) {
 export function getRequestOrderPageUrlFromScheduleEntry(entry) {
   const requestOrderId = extractRequestOrderIdFromEntry(entry);
   return requestOrderId ? buildRequestOrderPageUrl(requestOrderId) : "";
+}
+
+export async function getKpiSummary() {
+  try {
+    const response = await fetch(KPI_API_URL, {
+      headers: {
+        Authorization: KPI_ADMIN_AUTH
+      }
+    });
+    const text = await response.text();
+    const parsed = parseJsonSafe(text);
+    if (!response.ok || !parsed?.online) {
+      return { ok: false, message: parsed?.error || `KPI API lỗi HTTP ${response.status}.` };
+    }
+    return {
+      ok: true,
+      months: parsed.months || [],
+      monthly: parsed.monthly || [],
+      yearlyRanking: parsed.yearlyRanking || []
+    };
+  } catch (error) {
+    return { ok: false, message: `Không tải được KPI: ${error.message}` };
+  }
 }
 
 export async function getWorkScheduleByDay({ username, password, date = new Date(), storageState = null }) {

@@ -14,6 +14,7 @@ import {
   getRequestOrderIdFromScheduleEntry,
   getRequestOrderPageUrlFromScheduleEntry,
   getWorkScheduleByDay,
+  getKpiSummary,
   parseWorkScheduleDateInput,
   submitHermesOtp,
   submitHermesOtpAndGetWorkSchedule,
@@ -39,6 +40,7 @@ let queue = Promise.resolve();
 const telegramCommands = [
   { command: "start", description: "Mở menu Hermes" },
   { command: "lich", description: "Xem lịch làm việc" },
+  { command: "kpi", description: "Xem KPI tháng và năm" },
   { command: "sethermes", description: "Lưu tài khoản Hermes" },
   { command: "deletehermes", description: "Xóa tài khoản Hermes" },
   { command: "id", description: "Xem Telegram ID" },
@@ -90,6 +92,7 @@ function keyboard() {
       Markup.button.callback("➡️ Ngày mai", "action:hermes_work_offset:1")
     ],
     [Markup.button.callback("🗓️ Lịch cả tuần", "action:hermes_work_week")],
+    [Markup.button.callback("🎯 KPI tháng/năm", "action:hermes_kpi")],
     [Markup.button.callback("🔐 Tài khoản Hermes", "action:hermes_account"), Markup.button.callback("🗑️ Xoá TK Hermes", "action:delete_hermes")],
     [Markup.button.callback("👤 Check user hiện tại", "action:hermes_current_user")]
   ]);
@@ -436,6 +439,49 @@ async function showWorkSchedule(ctx, date = new Date()) {
   });
 }
 
+function formatKpiTelegramHtml(data) {
+  const months = Array.isArray(data?.monthly) ? data.monthly : [];
+  const ranking = Array.isArray(data?.yearlyRanking) ? data.yearlyRanking : [];
+  const lines = [
+    "🎯 <b>KPI tháng / năm</b>",
+    ""
+  ];
+
+  if (months.length) {
+    lines.push("<b>Theo tháng</b>");
+    for (const item of months) {
+      lines.push(`• <b>${escapeHtml(item.month)}</b> | KPI avg: <b>${Number(item.avgKpiSum || 0).toFixed(2)}</b> | Lương avg: <b>${Number(item.avgPointSalary || 0).toFixed(2)}</b>`);
+      if ((item.missingPointBonus || 0) > 0 || (item.missingPointSalary || 0) > 0) {
+        lines.push(`  Thiếu bonus: ${item.missingPointBonus || 0}, thiếu lương: ${item.missingPointSalary || 0}`);
+      }
+    }
+    lines.push("");
+  }
+
+  if (ranking.length) {
+    lines.push("<b>Top KPI năm tạm tính, theo POINT Tính lương</b>");
+    ranking.slice(0, 8).forEach((item, index) => {
+      lines.push(`${index + 1}. <b>${escapeHtml(item.support)}</b> | ${Number(item.pointSalary || 0).toFixed(2)} điểm`);
+    });
+  }
+
+  return lines.join("\n");
+}
+
+async function showKpiSummary(ctx) {
+  await ctx.reply("Đang tải KPI từ Google Sheet...");
+  const result = await enqueue(() => getKpiSummary());
+  if (!result?.ok) {
+    await ctx.reply(`Không tải được KPI.\n${String(result?.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
+    return;
+  }
+  await ctx.reply(formatKpiTelegramHtml(result), {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...keyboard()
+  });
+}
+
 async function showWorkScheduleWeek(ctx, date = new Date()) {
   const account = await getHermesAccountOrReply(ctx);
   if (!account) return;
@@ -547,6 +593,10 @@ bot.command("sethermes", async (ctx) => {
   await ctx.reply(result.ok ? result.message : `Lưu rồi nhưng test Hermes lỗi: ${result.message}`, keyboard());
 });
 
+bot.command("kpi", async (ctx) => {
+  await showKpiSummary(ctx);
+});
+
 bot.command(["lich", "schedule", "workschedule"], async (ctx) => {
   const date = parseScheduleCommandDate(ctx.message.text);
   if (!date) {
@@ -594,6 +644,11 @@ bot.action(/^action:hermes_work_date:(\d{4}-\d{2}-\d{2}):(-?\d+)$/, async (ctx) 
 bot.action("action:hermes_work_week", async (ctx) => {
   await ctx.answerCbQuery("Đang lấy lịch cả tuần...");
   await showWorkScheduleWeek(ctx, new Date());
+});
+
+bot.action("action:hermes_kpi", async (ctx) => {
+  await ctx.answerCbQuery("Đang tải KPI...");
+  await showKpiSummary(ctx);
 });
 
 bot.action("action:hermes_work_other", async (ctx) => {
