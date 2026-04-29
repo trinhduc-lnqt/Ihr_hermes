@@ -360,13 +360,13 @@ function parseDutyNoteGroups(note) {
 function formatDutyNoteLines(note) {
   const groups = parseDutyNoteGroups(note);
   if (!groups.length) {
-    return ["📍 -: -"];
+    return [];
   }
 
   return groups.map((group) => {
-    const title = escapeHtml(group.title || "-");
-    const value = group.items.length ? escapeHtml(group.items.join(" • ")) : "-";
-    return `📍 ${title}: ${value}`;
+    const title = escapeHtml(group.title || "").trim();
+    const value = group.items.length ? escapeHtml(group.items.join(" • ")) : "";
+    return value ? `📍 ${title}: ${value}` : `📍 ${title}:`;
   });
 }
 
@@ -448,7 +448,7 @@ function formatDutyScheduleHtml(result) {
     "📝 Ghi chú",
     ...formatDutyNoteLines(result.note),
     "</pre>"
-  ].join("\n");
+  ].filter((line, index, arr) => !(line === "📝 Ghi chú" && arr[index + 1] === "</pre>")).join("\n");
 }
 
 function formatWeekScheduleEntryHtml(entry, index) {
