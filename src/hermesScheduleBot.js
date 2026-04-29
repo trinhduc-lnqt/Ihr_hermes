@@ -461,27 +461,21 @@ function formatPercentLine(label, ratio) {
 function formatKpiBar(label, ratio, icon = "🔋") {
   const percent = Number(ratio || 0) * 100;
   const normalized = Math.max(0, Math.min(percent, 100));
-  const total = 10;
+  const total = 14;
   const filled = Math.round((normalized / 100) * total);
   const empty = Math.max(0, total - filled);
 
-  let filledChar = "🟩";
-  let emptyChar = "░";
   let statusIcon = icon;
-
   if (percent < 80) {
-    filledChar = "🟥";
     statusIcon = "🚨";
   } else if (percent < 100) {
-    filledChar = "🟨";
     statusIcon = "⚠️";
   } else {
-    filledChar = "🟩";
     statusIcon = "✅";
   }
 
-  const bar = filledChar.repeat(filled) + emptyChar.repeat(empty);
-  return `${statusIcon} ${label} [${bar}] <b>${percent.toFixed(2)}%</b>`;
+  const bar = "━".repeat(filled) + "╸" + "·".repeat(Math.max(0, empty - 1));
+  return `${statusIcon} ${label} <code>${bar}</code> <b>${percent.toFixed(2)}%</b>`;
 }
 
 function formatMetricValue(value, digits = 2) {
