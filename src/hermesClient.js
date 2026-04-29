@@ -1751,33 +1751,28 @@ export function formatWorkScheduleResult(result) {
   }).format(target || new Date());
 
   const lines = [
-    "<b>┏━━━━━━━━━━━━━━━━━━━━━━┓</b>",
-    `📅 <b>LỊCH NGÀY ${htmlValue(String(targetLabel).toUpperCase())}</b>`,
-    `⏱ <b>Kiểm tra:</b> ${htmlValue(checkedAt)}`,
-    "<b>┗━━━━━━━━━━━━━━━━━━━━━━┛</b>",
+    `📅 <b>Lịch ngày ${htmlValue(targetLabel)}</b>`,
+    `⏱ <i>${htmlValue(checkedAt)}</i>`,
     ""
   ];
 
   if (!result.entries?.length) {
-    lines.push("<b>┌─ Không có lịch</b>");
-    lines.push("└─ Hôm nay trống lịch hỗ trợ.");
+    lines.push("📭 Không có lịch hỗ trợ.");
     return lines.join("\n");
   }
 
-  lines.push(`📌 <b>Tổng cộng:</b> ${htmlValue(result.entries.length)} lịch`);
+  lines.push(`📌 <b>${htmlValue(result.entries.length)} lịch</b>`);
   lines.push("");
   let index = 1;
   for (const entry of result.entries.slice(0, 20)) {
-    lines.push(`┌ <b>Lịch ${index}</b>`);
-    lines.push(`└ ${htmlValue(formatWorkScheduleSummaryLine(entry))}`);
+    lines.push(`• <b>Lịch ${index}:</b> ${htmlValue(formatWorkScheduleSummaryLine(entry))}`);
     index += 1;
   }
   if (result.entries.length > 20) {
-    lines.push("");
-    lines.push(`... và ${htmlValue(result.entries.length - 20)} lịch nữa.`);
+    lines.push(`• ... và ${htmlValue(result.entries.length - 20)} lịch nữa`);
   }
   lines.push("");
-  lines.push("👇 <i>Bấm các nút bên dưới để mở từng lịch chi tiết.</i>");
+  lines.push("<i>Chọn nút bên dưới để xem chi tiết từng lịch.</i>");
   return lines.join("\n");
 }
 
