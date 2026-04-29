@@ -1445,7 +1445,7 @@ export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } =
     leader ? `Leader: ${htmlValue(leader)}` : "",
     order?.spAssignedAt ? `Phân lịch: ${htmlValue(displayValue(order.spAssignedAt))}${order?.spAssignedBy ? ` • ${htmlValue(order.spAssignedBy)}` : ""}` : "",
     "",
-    "<b>📝 Cần làm</b>",
+    "<b>📝 Công việc hỗ trợ</b>",
     note ? htmlValue(note) : "Không có ghi chú.",
     "",
     "<b>📦 Dịch vụ / Thiết bị</b>",
