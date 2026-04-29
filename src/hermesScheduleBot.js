@@ -308,6 +308,8 @@ async function fetchDutyScheduleByDate(date = new Date()) {
   };
 }
 
+const DUTY_SHEET_URL = "https://docs.google.com/spreadsheets/d/1gWlj6NObCw0AMKBK5GW_2_mCPs6WoF73bNe7QgkGBDc/edit?gid=1110843393#gid=1110843393";
+
 function formatDutyHeader(result) {
   const displayDate = (() => {
     const match = String(result.targetDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -402,7 +404,7 @@ function formatHolidayDutyScheduleHtml(result) {
     body.push(line.startsWith("📍") ? escapeHtml(line) : `📍 ${escapeHtml(line)}`);
   }
 
-  return body.concat("</pre>").join("\n");
+  return body.concat(["", `🔗 Check lịch trực: ${escapeHtml(DUTY_SHEET_URL)}`, "</pre>"]).join("\n");
 }
 
 function formatSundayDutyScheduleHtml(result) {
@@ -423,7 +425,7 @@ function formatSundayDutyScheduleHtml(result) {
     }
   });
 
-  return lines.join("\n") + "\n</pre>";
+  return lines.join("\n") + `\n\n🔗 Check lịch trực: ${escapeHtml(DUTY_SHEET_URL)}\n</pre>`;
 }
 
 function formatDutyScheduleHtml(result) {
@@ -453,6 +455,8 @@ function formatDutyScheduleHtml(result) {
     "",
     "📝 Ghi chú",
     ...formatDutyNoteLines(result.note),
+    "",
+    `🔗 Check lịch trực: ${escapeHtml(DUTY_SHEET_URL)}`,
     "</pre>"
   ].filter((line, index, arr) => !(line === "📝 Ghi chú" && arr[index + 1] === "</pre>")).join("\n");
 }
