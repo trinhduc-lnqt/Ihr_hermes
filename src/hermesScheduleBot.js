@@ -131,9 +131,11 @@ function workScheduleDetailKeyboard(result, cacheKey, entry = null) {
   if (link) {
     rows.push([Markup.button.url("🔗 Mở trên Hermes", link)]);
   }
-  rows.push([Markup.button.callback("📋 Danh sách lịch", `action:hermes_work_list:${cacheKey}`)]);
-  rows.push([Markup.button.callback("📆 Chọn ngày khác", "action:hermes_work_other")]);
-  rows.push([Markup.button.callback("🏠 Về menu chính", "action:menu")]);
+  rows.push([
+    Markup.button.callback("📋 Danh sách", `action:hermes_work_list:${cacheKey}`),
+    Markup.button.callback("📆 Ngày khác", "action:hermes_work_other"),
+    Markup.button.callback("🏠 Menu", "action:menu")
+  ]);
   return Markup.inlineKeyboard(rows);
 }
 
