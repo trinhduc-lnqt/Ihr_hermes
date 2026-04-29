@@ -232,12 +232,48 @@ function formatWeekScheduleResult(results, checkedAt = new Date()) {
   return lines.join("\n");
 }
 
+const START_QUOTES = [
+  [
+    "Hôm nay mây kéo lưng trời,",
+    "lịch của Sếp để em ngồi canh cho."
+  ],
+  [
+    "Ngày dài việc có thể đông,",
+    "nhưng đúng ngày đúng lịch thì em không để sai."
+  ],
+  [
+    "Sáng ra mở lịch thong dong,",
+    "phiếu nào đúng việc em lôi ra liền."
+  ],
+  [
+    "Việc nhiều chưa chắc đã căng,",
+    "có em giữ lịch, đỡ nhằn hơn kha khá."
+  ],
+  [
+    "Lịch kia nếu có đổi dời,",
+    "em soi đúng chỗ chứ không lôi lịch ma."
+  ],
+  [
+    "Một lần bấm, một lần xem,",
+    "đúng ngày đúng phiếu em đem ra liền."
+  ],
+  [
+    "Gió ngoài kia thích lang thang,",
+    "còn em thì thích giữ hàng lịch cho Sếp."
+  ]
+];
+
+function pickStartQuote() {
+  const index = Math.floor(Math.random() * START_QUOTES.length);
+  return START_QUOTES[index] || START_QUOTES[0];
+}
+
 function helpText(telegramId) {
+  const quote = pickStartQuote();
   return [
     "👋 <b>Chào Sếp, em là Hermes Bot.</b>",
     "",
-    "Hôm nay nắng gió ra sao em không chắc,",
-    "nhưng lịch làm việc của Sếp thì em soi được khá kỹ.",
+    ...quote,
     "",
     "<b>Em làm được gì:</b>",
     "• Xem lịch hôm nay / hôm qua / ngày mai",
