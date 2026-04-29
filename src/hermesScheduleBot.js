@@ -458,6 +458,10 @@ function formatPercentLine(label, ratio) {
   return `${label}: <b>${percent.toFixed(2)}%</b>`;
 }
 
+function formatMetricValue(value, digits = 2) {
+  return Number(value || 0).toFixed(digits);
+}
+
 function formatKpiMonthTelegramHtml(monthData, item) {
   const monthLabel = String(monthData.month || "").replace("_", "/");
   const kpiSumPercent = Number(item.kpiSum || 0) * 100;
@@ -471,9 +475,27 @@ function formatKpiMonthTelegramHtml(monthData, item) {
     `• 🧮 KPI SUM: <b>${kpiSumPercent.toFixed(2)}%</b>`,
     "",
     "💰 <b>Tính lương</b>",
-    `• 💵 POINT Thực tế (1): <b>${Number(item.pointActual || 0).toFixed(2)}</b>`,
-    `• 🎁 POINT Bonus (2): <b>${Number(item.pointBonus || 0).toFixed(2)}</b>`,
-    `• 🏆 POINT Tính lương: <b>${Number(item.pointSalary || 0).toFixed(2)}</b>`
+    `• 💵 POINT Thực tế (1): <b>${formatMetricValue(item.pointActual)}</b>`,
+    `• 🎁 POINT Bonus (2): <b>${formatMetricValue(item.pointBonus)}</b>`,
+    `• 🏆 POINT Tính lương: <b>${formatMetricValue(item.pointSalary)}</b>`,
+    "",
+    "🧩 <b>Sản lượng / chỉ số</b>",
+    `• Triển khai POS (6): <b>${formatMetricValue(item.deployPos)}</b>`,
+    `• Triển khai FABi (6): <b>${formatMetricValue(item.deployFabi)}</b>`,
+    `• Triển khai CRM (3): <b>${formatMetricValue(item.deployCrm)}</b>`,
+    `• Triển khai BK (3): <b>${formatMetricValue(item.deployBk)}</b>`,
+    `• Triển khai Call (3): <b>${formatMetricValue(item.deployCall)}</b>`,
+    `• Triển khai WO (3): <b>${formatMetricValue(item.deployWo)}</b>`,
+    `• Triển khai O2O (3): <b>${formatMetricValue(item.deployO2o)}</b>`,
+    `• Triển khai Hub (1): <b>${formatMetricValue(item.deployHub)}</b>`,
+    `• Triển khai HDDT (1.5): <b>${formatMetricValue(item.deployHddt)}</b>`,
+    `• Triển khai FoodHub (1.5): <b>${formatMetricValue(item.deployFoodHub)}</b>`,
+    `• Triển khai thêm (3): <b>${formatMetricValue(item.deployExtra)}</b>`,
+    `• Onsite TX (1.5): <b>${formatMetricValue(item.onsiteTx)}</b>`,
+    `• Onsite NT (3): <b>${formatMetricValue(item.onsiteNt)}</b>`,
+    `• Bảo trì (3): <b>${formatMetricValue(item.maintenance)}</b>`,
+    `• Support Count: <b>${formatMetricValue(item.supportCount)}</b>`,
+    `• Rate AI Avg: <b>${formatMetricValue(item.rateAiAvg, 4)}</b>`
   ].join("\n");
 }
 
