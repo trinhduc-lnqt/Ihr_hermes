@@ -441,9 +441,14 @@ async function showWorkSchedule(ctx, date = new Date()) {
 
 function kpiKeyboard(months = []) {
   const rows = [];
-  for (const month of months.slice(0, 12)) {
-    rows.push([Markup.button.callback(`📊 ${month.replace("_", "/")}`, `action:hermes_kpi_month:${month}`)]);
+  const monthButtons = months.slice(0, 12).map((month) =>
+    Markup.button.callback(`📊 ${month.replace("_", "/")}`, `action:hermes_kpi_month:${month}`)
+  );
+
+  for (let i = 0; i < monthButtons.length; i += 3) {
+    rows.push(monthButtons.slice(i, i + 3));
   }
+
   rows.push([Markup.button.callback("🏠 Về menu chính", "action:menu")]);
   return Markup.inlineKeyboard(rows);
 }
