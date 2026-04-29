@@ -119,12 +119,12 @@ function workScheduleKeyboard(result, cacheKey) {
     rows.push([Markup.button.callback(`${index + 1}. ${label}`, `action:hermes_work_detail:${cacheKey}:${index}`)]);
   }
   rows.push([
-    Markup.button.callback("◀️ Trước", `action:hermes_work_date:${result.targetDate}:-1`),
-    Markup.button.callback("Sau ▶️", `action:hermes_work_date:${result.targetDate}:1`)
+    Markup.button.callback("◀️ Ngày trước", `action:hermes_work_date:${result.targetDate}:-1`),
+    Markup.button.callback("Ngày sau ▶️", `action:hermes_work_date:${result.targetDate}:1`)
   ]);
   rows.push([
-    Markup.button.callback("📆 Chọn ngày", "action:hermes_work_other"),
-    Markup.button.callback("⬅️ Menu", "action:menu")
+    Markup.button.callback("📆 Chọn ngày khác", "action:hermes_work_other"),
+    Markup.button.callback("🏠 Về menu", "action:menu")
   ]);
   return Markup.inlineKeyboard(rows);
 }
