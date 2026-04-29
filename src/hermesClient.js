@@ -1393,6 +1393,11 @@ function getScheduleRequestOrderTypeLabel(entry = {}) {
     || getRequestOrderTypeLabel(order);
 }
 
+function buildRequestOrderInfoTitle(label = "") {
+  const cleanLabel = usefulText(label);
+  return cleanLabel ? `Thông tin ${cleanLabel}` : "Thông tin phiếu";
+}
+
 function isFullDayRequestOrderType(label = "") {
   return /hợp\s*đồng\s*&\s*triển\s*khai|hop\s*dong\s*&\s*trien\s*khai|phiếu\s*thu\s*&\s*triển\s*khai|phieu\s*thu\s*&\s*trien\s*khai|contract[_\s-]*and[_\s-]*deploy|invoice[_\s-]*and[_\s-]*deploy/i.test(String(label || ""));
 }
@@ -1419,6 +1424,7 @@ export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } =
   const note = usefulText(order?.contractNote);
   const deploymentTime = splitHermesDateTime(order?.deploymentTime);
   const requestOrderType = getRequestOrderTypeLabel(order);
+  const requestOrderInfoTitle = buildRequestOrderInfoTitle(requestOrderType);
   const storeLine = [storeName, storeId ? `#${storeId}` : ""].filter(Boolean).join(" • ");
   const scheduleLine = [deploymentTime.date, deploymentTime.time !== "---" ? deploymentTime.time : "", usefulText(order?.deployTechForm)].filter(Boolean).join(" • ");
 
@@ -1438,7 +1444,7 @@ export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } =
     contactName || contactPhone ? `Khách liên hệ: ${htmlValue(contactName || "---")}${contactPhone ? ` • ${htmlPhone(contactPhone)}` : ""}` : "",
     saleName || saleEmail || order?.salePhone ? `Sale: ${htmlValue([saleName, saleEmail].filter((value) => usefulText(value)).join(" • ") || "---")}${order?.salePhone ? ` • ${htmlPhone(order.salePhone)}` : ""}` : "",
     "",
-    "<b>🛠 Triển khai</b>",
+    `<b>🛠 ${htmlValue(requestOrderInfoTitle)}</b>`,
     scheduleLine ? `Lịch: ${htmlValue(scheduleLine)}` : "",
     requestOrderType ? `Loại: ${htmlValue(requestOrderType)}` : "",
     deployer ? `Người xử lý: ${htmlValue(deployer)}` : "",
