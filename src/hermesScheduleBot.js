@@ -334,7 +334,7 @@ function formatDutyInlinePeople(values = [], options = {}) {
 
 function formatDutyAlignedLine(icon, label, value) {
   const cleanLabel = escapeHtml(String(label || "").trim());
-  return `${icon} <b>${cleanLabel}:</b> ${value}`;
+  return `${icon} ${cleanLabel}: ${value}`;
 }
 
 function splitNoteGroupItems(rawValue) {
