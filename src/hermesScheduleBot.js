@@ -476,12 +476,12 @@ function formatKpiBar(label, ratio, icon = "🔋") {
   }
 
   const barChars = Array.from({ length: total }, (_, index) => {
-    if (index < pointerIndex) return "━";
-    if (index === pointerIndex) return "⬤";
-    return "·";
+    if (index < pointerIndex) return "=";
+    if (index === pointerIndex) return ">";
+    return "-";
   }).join("");
 
-  return `${statusIcon} ${padRight(label, labelWidth)} <code>${barChars}</code> <b>${padLeft(percent.toFixed(2) + "%", percentWidth)}</b>`;
+  return `${statusIcon} ${padRight(label, labelWidth)} ${barChars} ${padLeft(percent.toFixed(2) + "%", percentWidth)}`;
 }
 
 function formatMetricValue(value, digits = 2) {
@@ -536,11 +536,11 @@ function formatKpiMonthTelegramHtml(monthData, item) {
     `👤 <b>${escapeHtml(item.support)}</b>`,
     "",
     "📊 <b>KPI</b>",
-    formatKpiBar("Hotline", item.hotlinePct, "🎧"),
-    "",
-    formatKpiBar("Deploy", item.deployPct, "🚀"),
-    "",
-    formatKpiBar("KPI tổng", item.kpiSum, "🧮"),
+    `<pre>${[
+      formatKpiBar("Hotline", item.hotlinePct, "🎧"),
+      formatKpiBar("Deploy", item.deployPct, "🚀"),
+      formatKpiBar("KPI tổng", item.kpiSum, "🧮")
+    ].join("\n")}</pre>`,
     "",
     "💰 <b>Tính lương</b>",
     `• 💵 POINT Thực tế (1): <b>${formatMetricValue(item.pointActual)}</b>`,
