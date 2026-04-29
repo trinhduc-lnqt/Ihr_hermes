@@ -448,31 +448,20 @@ function kpiKeyboard(months = []) {
   return Markup.inlineKeyboard(rows);
 }
 
-function formatKpiMonthTelegramHtml(monthData) {
-  const lines = [
-    `🎯 <b>KPI tháng ${escapeHtml(String(monthData.month || "").replace("_", "/"))}</b>`,
+function formatKpiMonthTelegramHtml(monthData, item) {
+  const monthLabel = String(monthData.month || "").replace("_", "/");
+  return [
+    `🎯 <b>KPI tháng ${escapeHtml(monthLabel)}</b>`,
+    `👤 <b>${escapeHtml(item.support)}</b>`,
     "",
-    `Dòng dữ liệu: <b>${monthData.records?.length || 0}</b>`,
-    `Thiếu bonus: <b>${monthData.missingPointBonus || 0}</b> • Thiếu lương: <b>${monthData.missingPointSalary || 0}</b>`,
-    ""
-  ];
-
-  for (const item of (monthData.records || []).slice(0, 25)) {
-    lines.push(`<b>${escapeHtml(item.support)}</b>`);
-    lines.push(`- KPI Deploy: <b>${Number((item.deployPct || 0) * 100).toFixed(1)}%</b>`);
-    lines.push(`- KPI Hotline: <b>${Number((item.hotlinePct || 0) * 100).toFixed(1)}%</b>`);
-    lines.push(`- KPI SUM: <b>${Number(item.kpiSum || 0).toFixed(2)}</b>`);
-    lines.push(`- POINT Thực tế (1): <b>${Number(item.pointActual || 0).toFixed(2)}</b>`);
-    lines.push(`- POINT Bonus (2): <b>${Number(item.pointBonus || 0).toFixed(2)}</b>`);
-    lines.push(`- POINT Tính lương: <b>${Number(item.pointSalary || 0).toFixed(2)}</b>`);
-    lines.push("");
-  }
-
-  if ((monthData.records || []).length > 25) {
-    lines.push(`<i>Đã rút gọn, còn ${(monthData.records || []).length - 25} dòng nữa.</i>`);
-  }
-
-  return lines.join("\n");
+    `KPI Deploy (%): <b>${Number((item.deployPct || 0) * 100).toFixed(1)}%</b>`,
+    `KPI Hotline (%): <b>${Number((item.hotlinePct || 0) * 100).toFixed(1)}%</b>`,
+    `KPI SUM: <b>${Number(item.kpiSum || 0).toFixed(2)}</b>`,
+    "",
+    `POINT Thực tế (1): <b>${Number(item.pointActual || 0).toFixed(2)}</b>`,
+    `POINT Bonus (2): <b>${Number(item.pointBonus || 0).toFixed(2)}</b>`,
+    `POINT Tính lương: <b>${Number(item.pointSalary || 0).toFixed(2)}</b>`
+  ].join("\n");
 }
 
 async function showKpiSummary(ctx) {
@@ -494,6 +483,8 @@ async function showKpiSummary(ctx) {
 }
 
 async function showKpiMonth(ctx, month) {
+  const account = await getHermesAccountOrReply(ctx);
+  if (!account) return;
   const result = await enqueue(() => getKpiSummary());
   if (!result?.ok) {
     await ctx.reply(`Không tải được KPI.\n${String(result?.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
@@ -504,7 +495,13 @@ async function showKpiMonth(ctx, month) {
     await ctx.reply(`Không tìm thấy sheet KPI tháng ${month}.`, keyboard());
     return;
   }
-  await ctx.reply(formatKpiMonthTelegramHtml(monthData), {
+  const hermesUsername = String(account.hermesUsername || "").trim().toLowerCase();
+  const item = (monthData.records || []).find((row) => String(row.support || "").trim().toLowerCase() === hermesUsername);
+  if (!item) {
+    await ctx.reply(`Không tìm thấy KPI của tài khoản ${account.hermesUsername} trong sheet ${month}.`, keyboard());
+    return;
+  }
+  await ctx.reply(formatKpiMonthTelegramHtml(monthData, item), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...kpiKeyboard(result.months || [])
