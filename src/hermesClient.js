@@ -1406,35 +1406,38 @@ export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } =
   const note = usefulText(order?.contractNote);
   const deploymentTime = splitHermesDateTime(order?.deploymentTime);
   const requestOrderType = getRequestOrderTypeLabel(order);
+  const storeLine = [storeName, storeId ? `#${storeId}` : ""].filter(Boolean).join(" • ");
+  const saleLine = [saleName, saleEmail, order?.salePhone].filter((value) => usefulText(value)).join(" • ");
+  const contactLine = [contactName, contactPhone].filter((value) => usefulText(value)).join(" • ");
+  const scheduleLine = [deploymentTime.date, deploymentTime.time !== "---" ? deploymentTime.time : "", usefulText(order?.deployTechForm)].filter(Boolean).join(" • ");
 
   return compactLines([
-    `📋 <b>PYC #${htmlValue(order?.roCode)} — ${htmlValue(order?.productCode)}</b>`,
-    `${htmlValue(requestOrderType)} • ${htmlValue(mapDeployStatus(order?.spStatus))} • ${htmlLink("Mở Hermes", hermesUrl)}`,
+    `📋 <b>PYC #${htmlValue(order?.roCode)}</b> ${htmlValue(order?.productCode ? `— ${order.productCode}` : "")}`.trim(),
+    `<b>${htmlValue(requestOrderType)}</b> • ${htmlValue(mapDeployStatus(order?.spStatus))}`,
+    hermesUrl ? `🔗 ${htmlLink("Mở Hermes", hermesUrl)}` : "",
     `⏱ <i>${htmlValue(checkedAtText)}</i>`,
     "",
-    "<b>📍 KHÁCH / ĐỊA ĐIỂM</b>",
-    customerName ? `<b>Khách:</b> ${htmlValue(customerName)}` : "",
-    storeName ? `<b>Cửa hàng:</b> ${htmlValue(storeName)}${storeId ? ` (${htmlValue(storeId)})` : ""}` : "",
-    address ? `<b>Địa chỉ:</b> ${htmlValue(address)}` : "",
-    order?.companyId ? `<b>Company ID:</b> <code>${htmlValue(order.companyId)}</code>` : "",
+    "<b>┏━━ 📍 KHÁCH HÀNG</b>",
+    customerName ? `• <b>Khách:</b> ${htmlValue(customerName)}` : "",
+    storeLine ? `• <b>Cửa hàng:</b> ${htmlValue(storeLine)}` : "",
+    address ? `• <b>Địa chỉ:</b> ${htmlValue(address)}` : "",
+    order?.companyId ? `• <b>Company ID:</b> <code>${htmlValue(order.companyId)}</code>` : "",
     "",
-    "<b>☎️ LIÊN HỆ</b>",
-    contactName || contactPhone ? `<b>Khách liên hệ:</b> ${htmlValue(contactName || "---")} | ${htmlPhone(contactPhone)}` : "",
-    saleName || saleEmail || order?.salePhone ? `<b>Sale:</b> ${htmlValue([saleName, saleEmail].filter(Boolean).join(" | ") || "---")}${order?.salePhone ? ` | ${htmlPhone(order.salePhone)}` : ""}` : "",
+    "<b>┏━━ ☎️ LIÊN HỆ</b>",
+    contactLine ? `• <b>Khách liên hệ:</b> ${htmlValue(contactName || "---")}${contactPhone ? ` • ${htmlPhone(contactPhone)}` : ""}` : "",
+    saleLine ? `• <b>Sale:</b> ${htmlValue([saleName, saleEmail].filter((value) => usefulText(value)).join(" • "))}${order?.salePhone ? ` • ${htmlPhone(order.salePhone)}` : ""}` : "",
     "",
-    "<b>🛠 LỊCH TRIỂN KHAI</b>",
-    htmlLine("Loại PYC", requestOrderType),
-    htmlLine("Ngày", deploymentTime.date),
-    htmlLine("Giờ", deploymentTime.time),
-    htmlLine("Hình thức", order?.deployTechForm),
-    htmlLine("Người triển khai", deployer),
-    leader ? htmlLine("Leader", leader) : "",
-    order?.spAssignedAt ? htmlLine("Phân lịch", `${displayValue(order.spAssignedAt)} bởi ${displayValue(order.spAssignedBy)}`) : "",
+    "<b>┏━━ 🛠 TRIỂN KHAI</b>",
+    scheduleLine ? `• <b>Lịch:</b> ${htmlValue(scheduleLine)}` : "",
+    requestOrderType ? `• <b>Loại:</b> ${htmlValue(requestOrderType)}` : "",
+    deployer ? `• <b>Người xử lý:</b> ${htmlValue(deployer)}` : "",
+    leader ? `• <b>Leader:</b> ${htmlValue(leader)}` : "",
+    order?.spAssignedAt ? `• <b>Phân lịch:</b> ${htmlValue(displayValue(order.spAssignedAt))}${order?.spAssignedBy ? ` • ${htmlValue(order.spAssignedBy)}` : ""}` : "",
     "",
-    "<b>📝 NỘI DUNG CẦN LÀM</b>",
-    note ? htmlValue(note) : "Không có ghi chú.",
+    "<b>┏━━ 📝 CẦN LÀM</b>",
+    note ? `• ${htmlValue(note)}` : "• Không có ghi chú.",
     "",
-    "<b>📦 DỊCH VỤ</b>",
+    "<b>┏━━ 📦 DỊCH VỤ / THIẾT BỊ</b>",
     formatRequestOrderProductsHtml(order?.details, order?.devices)
   ]);
 }
