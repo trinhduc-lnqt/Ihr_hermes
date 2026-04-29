@@ -37,12 +37,12 @@ let instanceLockServer = null;
 let queue = Promise.resolve();
 
 const telegramCommands = [
-  { command: "start", description: "Mo menu lich Hermes" },
-  { command: "lich", description: "Xem lich lam viec Hermes theo ngay" },
-  { command: "sethermes", description: "Luu tai khoan Hermes" },
-  { command: "deletehermes", description: "Xoa tai khoan Hermes" },
+  { command: "start", description: "Mở menu Hermes" },
+  { command: "lich", description: "Xem lịch làm việc" },
+  { command: "sethermes", description: "Lưu tài khoản Hermes" },
+  { command: "deletehermes", description: "Xóa tài khoản Hermes" },
   { command: "id", description: "Xem Telegram ID" },
-  { command: "cancel", description: "Huy thao tac dang doi" }
+  { command: "cancel", description: "Hủy thao tác đang đợi" }
 ];
 
 function enqueue(task) {
@@ -234,17 +234,23 @@ function formatWeekScheduleResult(results, checkedAt = new Date()) {
 
 function helpText(telegramId) {
   return [
-    "Bot lịch làm việc Hermes đã sẵn sàng.",
+    "👋 <b>Chào Sếp, em là Hermes Bot.</b>",
     "",
-    `Telegram ID của Sếp: ${telegramId}`,
+    "Hôm nay nắng gió ra sao em không chắc,",
+    "nhưng lịch làm việc của Sếp thì em soi được khá kỹ.",
     "",
-    "Lệnh nhanh:",
-    "/lich                 - xem lịch hôm nay",
-    "/lich mai             - xem lịch ngày mai",
-    "/lich 28/04           - xem lịch theo ngày",
-    "/sethermes            - lưu tài khoản Hermes",
-    "/deletehermes         - xoá tài khoản Hermes",
-    "/cancel               - huỷ thao tác đang đợi"
+    "<b>Em làm được gì:</b>",
+    "• Xem lịch hôm nay / hôm qua / ngày mai",
+    "• Xem lịch cả tuần",
+    "• Mở nhanh chi tiết phiếu yêu cầu từ lịch",
+    "• Lưu và quản lý tài khoản Hermes riêng cho Sếp",
+    "",
+    "<b>Cách dùng nhanh:</b>",
+    "• Bấm menu bên dưới để xem lịch ngay",
+    "• Hoặc gõ: <code>/lich</code>, <code>/lich mai</code>, <code>/lich 28/04</code>",
+    "• Cần lưu tài khoản: <code>/sethermes</code>",
+    "",
+    `🆔 <b>Telegram ID:</b> <code>${telegramId}</code>`
   ].join("\n");
 }
 
@@ -437,7 +443,11 @@ bot.start(async (ctx) => {
     await ctx.reply(buildUnauthorizedText(ctx), Markup.removeKeyboard());
     return;
   }
-  await ctx.reply(helpText(ctx.from.id), keyboard());
+  await ctx.reply(helpText(ctx.from.id), {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...keyboard()
+  });
 });
 
 bot.command("id", async (ctx) => {
@@ -445,7 +455,16 @@ bot.command("id", async (ctx) => {
 });
 
 bot.command("menu", async (ctx) => {
-  await ctx.reply("Menu lịch Hermes:", keyboard());
+  await ctx.reply([
+    "✨ <b>Menu Hermes của Sếp</b>",
+    "",
+    "Muốn xem nhanh thì bấm nút bên dưới,",
+    "muốn đào sâu thì em mở tiếp chi tiết phiếu cho Sếp."
+  ].join("\n"), {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...keyboard()
+  });
 });
 
 bot.command("status", async (ctx) => {
@@ -511,7 +530,16 @@ bot.command(["lich", "schedule", "workschedule"], async (ctx) => {
 
 bot.action("action:menu", async (ctx) => {
   await ctx.answerCbQuery();
-  await ctx.reply("Menu lịch Hermes:", keyboard());
+  await ctx.reply([
+    "✨ <b>Menu Hermes của Sếp</b>",
+    "",
+    "Chọn một nhịp là ra lịch,",
+    "chọn đúng phiếu là ra việc."
+  ].join("\n"), {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...keyboard()
+  });
 });
 
 bot.action("action:hermes_work", async (ctx) => {
