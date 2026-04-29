@@ -385,15 +385,18 @@ function rememberWorkSchedule(ctx, result) {
 async function askWorkScheduleOtherDate(ctx) {
   pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_date" });
   await ctx.reply([
-    "Sếp gửi ngày muốn xem lịch Hermes nhé.",
-    "Mẫu:",
-    "28/04",
-    "28/04/2026",
-    "mai",
-    "hôm nay",
+    "📆 <b>Chọn ngày cần xem lịch</b>",
     "",
-    "/cancel để huỷ."
-  ].join("\n"));
+    "Sếp chỉ cần gửi một trong các dạng sau:",
+    "• <code>28/04</code>",
+    "• <code>28/04/2026</code>",
+    "• <code>hôm nay</code>",
+    "• <code>mai</code>",
+    "",
+    "Muốn huỷ thì gõ <code>/cancel</code>."
+  ].join("\n"), {
+    parse_mode: "HTML"
+  });
 }
 
 async function getHermesAccountOrReply(ctx) {
