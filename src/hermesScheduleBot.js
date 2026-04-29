@@ -145,6 +145,26 @@ function workScheduleDetailKeyboard(result, cacheKey, entry = null) {
   return Markup.inlineKeyboard(rows);
 }
 
+function dutyKeyboard(date = new Date()) {
+  const targetDate = parseWorkScheduleDateInput(date) || new Date(date);
+  const targetDateText = new Intl.DateTimeFormat("en-CA", {
+    timeZone: config.timezoneId,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(targetDate);
+
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback("⬅️ Hôm qua", `action:duty_date:${targetDateText}:-1`),
+      Markup.button.callback("📅 Hôm nay", "action:duty_today"),
+      Markup.button.callback("➡️ Ngày mai", `action:duty_date:${targetDateText}:1`)
+    ],
+    [Markup.button.callback("🗓️ Lịch trực cả tuần", "action:duty_week")],
+    [Markup.button.callback("📆 Chọn ngày khác", "action:duty_other"), Markup.button.callback("🏠 Menu", "action:menu")]
+  ]);
+}
+
 function formatDateTime(date) {
   return new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "short",
@@ -653,6 +673,23 @@ async function askWorkScheduleOtherDate(ctx) {
   });
 }
 
+async function askDutyOtherDate(ctx) {
+  pendingActions.set(ctx.chat.id, { stage: "duty_schedule_date" });
+  await ctx.reply([
+    "📆 <b>Chọn ngày cần xem lịch trực</b>",
+    "",
+    "Sếp chỉ cần gửi một trong các dạng sau:",
+    "• <code>29/04</code>",
+    "• <code>29/04/2026</code>",
+    "• <code>hôm nay</code>",
+    "• <code>mai</code>",
+    "",
+    "Muốn huỷ thì gõ <code>/cancel</code>."
+  ].join("\n"), {
+    parse_mode: "HTML"
+  });
+}
+
 async function getHermesAccountOrReply(ctx) {
   const account = await getHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
   if (!account?.hermesUsername || !account?.hermesPassword) {
@@ -868,11 +905,26 @@ async function showDutySchedule(ctx, date = new Date()) {
     await ctx.reply(formatDutyScheduleHtml(result), {
       parse_mode: "HTML",
       disable_web_page_preview: true,
-      ...keyboard()
+      ...dutyKeyboard(date)
     });
   } catch (error) {
-    await ctx.reply(`Không tải được lịch trực Google Sheet.\n${String(error.message || error).slice(0, 700)}`, keyboard());
+    await ctx.reply(`Không tải được lịch trực Google Sheet.\n${String(error.message || error).slice(0, 700)}`, dutyKeyboard(date));
   }
+}
+
+async function showDutyScheduleWeek(ctx, date = new Date()) {
+  const startDate = getRelativeWorkScheduleDate(-(new Date(date).getDay() || 7) + 1, date);
+  const parts = [];
+  for (let offset = 0; offset < 7; offset += 1) {
+    const targetDate = getRelativeWorkScheduleDate(offset, startDate);
+    const result = await fetchDutyScheduleByDate(targetDate);
+    parts.push(formatDutyScheduleHtml(result));
+  }
+  await ctx.reply(parts.join("\n\n"), {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...dutyKeyboard(date)
+  });
 }
 
 async function showTodayDashboard(ctx) {
@@ -1047,7 +1099,20 @@ bot.command("today", async (ctx) => {
 });
 
 bot.command("truc", async (ctx) => {
-  await showDutySchedule(ctx, new Date());
+  const date = parseScheduleCommandDate(ctx.message.text);
+  if (!date) {
+    await ctx.reply([
+      "Ngày không hợp lệ Sếp.",
+      "Mẫu dùng:",
+      "/truc",
+      "/truc hôm nay",
+      "/truc mai",
+      "/truc 29/04",
+      "/truc 29/04/2026"
+    ].join("\n"));
+    return;
+  }
+  await showDutySchedule(ctx, date);
 });
 
 bot.command("kpi", async (ctx) => {
@@ -1106,6 +1171,23 @@ bot.action("action:today_dashboard", async (ctx) => {
 bot.action("action:duty_today", async (ctx) => {
   await ctx.answerCbQuery("Đang lấy lịch trực...");
   await showDutySchedule(ctx, new Date());
+});
+
+bot.action(/^action:duty_date:(\d{4}-\d{2}-\d{2}):(-?\d+)$/, async (ctx) => {
+  const baseDate = parseWorkScheduleDateInput(ctx.match?.[1]);
+  const offset = Number(ctx.match?.[2] || 0);
+  await ctx.answerCbQuery("Đang lấy lịch trực...");
+  await showDutySchedule(ctx, getRelativeWorkScheduleDate(offset, baseDate || new Date()));
+});
+
+bot.action("action:duty_week", async (ctx) => {
+  await ctx.answerCbQuery("Đang lấy lịch trực cả tuần...");
+  await showDutyScheduleWeek(ctx, new Date());
+});
+
+bot.action("action:duty_other", async (ctx) => {
+  await ctx.answerCbQuery();
+  await askDutyOtherDate(ctx);
 });
 
 bot.action("action:hermes_work_week", async (ctx) => {
@@ -1266,6 +1348,17 @@ bot.on("text", async (ctx) => {
     }
     if (result.storageState) await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: result.storageState });
     await ctx.reply(result.message, keyboard());
+    return;
+  }
+
+  if (pending.stage === "duty_schedule_date") {
+    const date = parseWorkScheduleDateInput(text);
+    if (!date) {
+      await ctx.reply("Ngày chưa đúng định dạng rồi Sếp. Ví dụ: 29/04, 29/04/2026, hôm nay, mai.");
+      return;
+    }
+    pendingActions.delete(ctx.chat.id);
+    await showDutySchedule(ctx, date);
     return;
   }
 
