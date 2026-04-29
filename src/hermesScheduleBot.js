@@ -462,6 +462,46 @@ function formatMetricValue(value, digits = 2) {
   return Number(value || 0).toFixed(digits);
 }
 
+function padRight(value, width) {
+  const text = String(value ?? "");
+  return text.length >= width ? text.slice(0, width) : text + " ".repeat(width - text.length);
+}
+
+function padLeft(value, width) {
+  const text = String(value ?? "");
+  return text.length >= width ? text.slice(0, width) : " ".repeat(width - text.length) + text;
+}
+
+function formatWorkloadTable(item) {
+  const rows = [
+    ["Triển khai POS (6)", formatMetricValue(item.deployPos)],
+    ["Triển khai FABi (6)", formatMetricValue(item.deployFabi)],
+    ["Triển khai CRM (3)", formatMetricValue(item.deployCrm)],
+    ["Triển khai BK (3)", formatMetricValue(item.deployBk)],
+    ["Triển khai Call (3)", formatMetricValue(item.deployCall)],
+    ["Triển khai WO (3)", formatMetricValue(item.deployWo)],
+    ["Triển khai O2O (3)", formatMetricValue(item.deployO2o)],
+    ["Triển khai Hub (1)", formatMetricValue(item.deployHub)],
+    ["Triển khai HDDT (1.5)", formatMetricValue(item.deployHddt)],
+    ["Triển khai FoodHub (1.5)", formatMetricValue(item.deployFoodHub)],
+    ["Triển khai thêm (3)", formatMetricValue(item.deployExtra)],
+    ["Onsite TX (1.5)", formatMetricValue(item.onsiteTx)],
+    ["Onsite NT (3)", formatMetricValue(item.onsiteNt)],
+    ["Bảo trì (3)", formatMetricValue(item.maintenance)],
+    ["Support Count", formatMetricValue(item.supportCount)],
+    ["Rate AI Avg", formatMetricValue(item.rateAiAvg, 4)]
+  ];
+
+  const leftWidth = Math.max(...rows.map(([label]) => String(label).length), "Sản phẩm".length);
+  const rightWidth = Math.max(...rows.map(([, value]) => String(value).length), "Chỉ số".length);
+  const border = `+-${"-".repeat(leftWidth)}-+-${"-".repeat(rightWidth)}-+`;
+  const body = rows.map(([label, value]) => `| ${padRight(label, leftWidth)} | ${padLeft(value, rightWidth)} |`).join("\n");
+  return [
+    "🧩 <b>Sản lượng / chỉ số</b>",
+    `<pre>${border}\n| ${padRight("Sản phẩm", leftWidth)} | ${padLeft("Chỉ số", rightWidth)} |\n${border}\n${body}\n${border}</pre>`
+  ].join("\n");
+}
+
 function formatKpiMonthTelegramHtml(monthData, item) {
   const monthLabel = String(monthData.month || "").replace("_", "/");
   const kpiSumPercent = Number(item.kpiSum || 0) * 100;
@@ -479,23 +519,7 @@ function formatKpiMonthTelegramHtml(monthData, item) {
     `• 🎁 POINT Bonus (2): <b>${formatMetricValue(item.pointBonus)}</b>`,
     `• 🏆 POINT Tính lương: <b>${formatMetricValue(item.pointSalary)}</b>`,
     "",
-    "🧩 <b>Sản lượng / chỉ số</b>",
-    `• Triển khai POS (6): <b>${formatMetricValue(item.deployPos)}</b>`,
-    `• Triển khai FABi (6): <b>${formatMetricValue(item.deployFabi)}</b>`,
-    `• Triển khai CRM (3): <b>${formatMetricValue(item.deployCrm)}</b>`,
-    `• Triển khai BK (3): <b>${formatMetricValue(item.deployBk)}</b>`,
-    `• Triển khai Call (3): <b>${formatMetricValue(item.deployCall)}</b>`,
-    `• Triển khai WO (3): <b>${formatMetricValue(item.deployWo)}</b>`,
-    `• Triển khai O2O (3): <b>${formatMetricValue(item.deployO2o)}</b>`,
-    `• Triển khai Hub (1): <b>${formatMetricValue(item.deployHub)}</b>`,
-    `• Triển khai HDDT (1.5): <b>${formatMetricValue(item.deployHddt)}</b>`,
-    `• Triển khai FoodHub (1.5): <b>${formatMetricValue(item.deployFoodHub)}</b>`,
-    `• Triển khai thêm (3): <b>${formatMetricValue(item.deployExtra)}</b>`,
-    `• Onsite TX (1.5): <b>${formatMetricValue(item.onsiteTx)}</b>`,
-    `• Onsite NT (3): <b>${formatMetricValue(item.onsiteNt)}</b>`,
-    `• Bảo trì (3): <b>${formatMetricValue(item.maintenance)}</b>`,
-    `• Support Count: <b>${formatMetricValue(item.supportCount)}</b>`,
-    `• Rate AI Avg: <b>${formatMetricValue(item.rateAiAvg, 4)}</b>`
+    formatWorkloadTable(item)
   ].join("\n");
 }
 
