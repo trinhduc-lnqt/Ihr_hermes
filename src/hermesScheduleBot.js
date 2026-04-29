@@ -439,46 +439,75 @@ async function showWorkSchedule(ctx, date = new Date()) {
   });
 }
 
-function formatKpiTelegramHtml(data) {
-  const months = Array.isArray(data?.monthly) ? data.monthly : [];
-  const ranking = Array.isArray(data?.yearlyRanking) ? data.yearlyRanking : [];
+function kpiKeyboard(months = []) {
+  const rows = [];
+  for (const month of months.slice(0, 12)) {
+    rows.push([Markup.button.callback(`📊 ${month.replace("_", "/")}`, `action:hermes_kpi_month:${month}`)]);
+  }
+  rows.push([Markup.button.callback("🏠 Về menu chính", "action:menu")]);
+  return Markup.inlineKeyboard(rows);
+}
+
+function formatKpiMonthTelegramHtml(monthData) {
   const lines = [
-    "🎯 <b>KPI tháng / năm</b>",
+    `🎯 <b>KPI tháng ${escapeHtml(String(monthData.month || "").replace("_", "/"))}</b>`,
+    "",
+    `Dòng dữ liệu: <b>${monthData.records?.length || 0}</b>`,
+    `Thiếu bonus: <b>${monthData.missingPointBonus || 0}</b> • Thiếu lương: <b>${monthData.missingPointSalary || 0}</b>`,
     ""
   ];
 
-  if (months.length) {
-    lines.push("<b>Theo tháng</b>");
-    for (const item of months) {
-      lines.push(`• <b>${escapeHtml(item.month)}</b> | KPI avg: <b>${Number(item.avgKpiSum || 0).toFixed(2)}</b> | Lương avg: <b>${Number(item.avgPointSalary || 0).toFixed(2)}</b>`);
-      if ((item.missingPointBonus || 0) > 0 || (item.missingPointSalary || 0) > 0) {
-        lines.push(`  Thiếu bonus: ${item.missingPointBonus || 0}, thiếu lương: ${item.missingPointSalary || 0}`);
-      }
-    }
+  for (const item of (monthData.records || []).slice(0, 25)) {
+    lines.push(`<b>${escapeHtml(item.support)}</b>`);
+    lines.push(`- KPI Deploy: <b>${Number((item.deployPct || 0) * 100).toFixed(1)}%</b>`);
+    lines.push(`- KPI Hotline: <b>${Number((item.hotlinePct || 0) * 100).toFixed(1)}%</b>`);
+    lines.push(`- KPI SUM: <b>${Number(item.kpiSum || 0).toFixed(2)}</b>`);
+    lines.push(`- POINT Thực tế (1): <b>${Number(item.pointActual || 0).toFixed(2)}</b>`);
+    lines.push(`- POINT Bonus (2): <b>${Number(item.pointBonus || 0).toFixed(2)}</b>`);
+    lines.push(`- POINT Tính lương: <b>${Number(item.pointSalary || 0).toFixed(2)}</b>`);
     lines.push("");
   }
 
-  if (ranking.length) {
-    lines.push("<b>Top KPI năm tạm tính, theo POINT Tính lương</b>");
-    ranking.slice(0, 8).forEach((item, index) => {
-      lines.push(`${index + 1}. <b>${escapeHtml(item.support)}</b> | ${Number(item.pointSalary || 0).toFixed(2)} điểm`);
-    });
+  if ((monthData.records || []).length > 25) {
+    lines.push(`<i>Đã rút gọn, còn ${(monthData.records || []).length - 25} dòng nữa.</i>`);
   }
 
   return lines.join("\n");
 }
 
 async function showKpiSummary(ctx) {
-  await ctx.reply("Đang tải KPI từ Google Sheet...");
+  await ctx.reply("Đang tải danh sách tháng KPI...");
   const result = await enqueue(() => getKpiSummary());
   if (!result?.ok) {
     await ctx.reply(`Không tải được KPI.\n${String(result?.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
     return;
   }
-  await ctx.reply(formatKpiTelegramHtml(result), {
+  await ctx.reply([
+    "🎯 <b>KPI theo tháng</b>",
+    "",
+    "Sếp chọn đúng tháng cần xem. Ví dụ tháng 3/2026 sẽ lấy sheet <code>2026_03</code>."
+  ].join("\n"), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
-    ...keyboard()
+    ...kpiKeyboard(result.months || [])
+  });
+}
+
+async function showKpiMonth(ctx, month) {
+  const result = await enqueue(() => getKpiSummary());
+  if (!result?.ok) {
+    await ctx.reply(`Không tải được KPI.\n${String(result?.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
+    return;
+  }
+  const monthData = (result.monthly || []).find((item) => item.month === month);
+  if (!monthData) {
+    await ctx.reply(`Không tìm thấy sheet KPI tháng ${month}.`, keyboard());
+    return;
+  }
+  await ctx.reply(formatKpiMonthTelegramHtml(monthData), {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...kpiKeyboard(result.months || [])
   });
 }
 
@@ -649,6 +678,12 @@ bot.action("action:hermes_work_week", async (ctx) => {
 bot.action("action:hermes_kpi", async (ctx) => {
   await ctx.answerCbQuery("Đang tải KPI...");
   await showKpiSummary(ctx);
+});
+
+bot.action(/^action:hermes_kpi_month:(\d{4}_\d{2})$/, async (ctx) => {
+  const month = ctx.match?.[1];
+  await ctx.answerCbQuery(`Đang tải KPI ${month}...`);
+  await showKpiMonth(ctx, month);
 });
 
 bot.action("action:hermes_work_other", async (ctx) => {
