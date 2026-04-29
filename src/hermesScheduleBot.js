@@ -316,20 +316,18 @@ function formatDutyHeader(result) {
     return `${dd}/${mm}/${yyyy}`;
   })();
 
+  const weekday = String(result.weekday || "").trim().replace(/\s*-\s*Ca\s*\d+.*$/i, "");
+
   return [
-    "<pre>╔════════════════════╗",
-    `📅 LỊCH TRỰC NGÀY ${displayDate}`,
-    `🗓 ${escapeHtml(result.weekday || "")}`,
-    "╚════════════════════╝"
+    "<pre>",
+    `📅 LỊCH TRỰC ${displayDate}`,
+    `🗓 ${escapeHtml(weekday)}`
   ];
 }
 
-function formatDutyPeopleLines(values = []) {
+function formatDutyInlinePeople(values = []) {
   const items = values.map((item) => String(item || "").trim()).filter(Boolean);
-  if (!items.length) {
-    return ["┗ 👤 -"];
-  }
-  return items.map((item, index) => `${index === items.length - 1 ? "┗" : "┣"} 👤 ${escapeHtml(item)}`);
+  return items.length ? escapeHtml(items.join(" • ")) : "-";
 }
 
 function splitNoteGroupItems(rawValue) {
@@ -362,24 +360,14 @@ function parseDutyNoteGroups(note) {
 function formatDutyNoteLines(note) {
   const groups = parseDutyNoteGroups(note);
   if (!groups.length) {
-    return ["┗ -"];
+    return ["📍 -: -"];
   }
 
-  const lines = [];
-  groups.forEach((group, groupIndex) => {
-    if (groupIndex > 0) {
-      lines.push("");
-    }
-    lines.push(`📍 ${escapeHtml(group.title)}`);
-    if (!group.items.length) {
-      lines.push("┗ -");
-      return;
-    }
-    group.items.forEach((item, index) => {
-      lines.push(`${index === group.items.length - 1 ? "┗" : "┣"} ${escapeHtml(item)}`);
-    });
+  return groups.map((group) => {
+    const title = escapeHtml(group.title || "-");
+    const value = group.items.length ? escapeHtml(group.items.join(" • ")) : "-";
+    return `📍 ${title}: ${value}`;
   });
-  return lines;
 }
 
 function formatHolidayDutyScheduleHtml(result) {
@@ -389,43 +377,26 @@ function formatHolidayDutyScheduleHtml(result) {
     .filter(Boolean)
     .filter((line) => line !== "-------------------");
 
-  const sections = [];
-  let current = null;
+  const body = [...formatDutyHeader(result), ""];
+  let hasNoteTitle = false;
+
   for (const line of lines) {
-    const match = line.match(/^(Ca\s*\d+[^:]*|Nghỉ lễ[^:]*):\s*(.*)$/i);
+    const match = line.match(/^(Nghỉ lễ[^:]*|Ca\s*\d+[^:]*):\s*(.*)$/i);
     if (match) {
-      current = { title: match[1].trim(), items: [] };
-      if (match[2]?.trim()) current.items.push(match[2].trim());
-      sections.push(current);
+      const [, title, value] = match;
+      const normalizedTitle = /^ca\s*1/i.test(title) ? "☀️ Ca 1" : /^ca\s*2/i.test(title) ? "🌙 Ca 2" : `🎊 ${title}`;
+      body.push(`${escapeHtml(normalizedTitle)}: ${escapeHtml((value || "-").trim() || "-")}`);
       continue;
     }
-    if (!current) {
-      current = { title: line, items: [] };
-      sections.push(current);
-      continue;
+
+    if (!hasNoteTitle) {
+      body.push("", "📝 Ghi chú");
+      hasNoteTitle = true;
     }
-    current.items.push(line);
+    body.push(line.startsWith("📍") ? escapeHtml(line) : `📍 ${escapeHtml(line)}`);
   }
 
-  const body = [];
-  sections.forEach((section, sectionIndex) => {
-    if (sectionIndex > 0) body.push("");
-    body.push(`🎊 ${escapeHtml(section.title.toUpperCase())}`);
-    if (!section.items.length) {
-      body.push("┗ -");
-      return;
-    }
-    section.items.forEach((item, index) => {
-      body.push(`${index === section.items.length - 1 ? "┗" : "┣"} ${escapeHtml(item)}`);
-    });
-  });
-
-  return [
-    ...formatDutyHeader(result),
-    "",
-    ...body,
-    "</pre>"
-  ].join("\n");
+  return body.concat("</pre>").join("\n");
 }
 
 function formatSundayDutyScheduleHtml(result) {
@@ -437,16 +408,12 @@ function formatSundayDutyScheduleHtml(result) {
   const shifts = Array.isArray(result.sundayShifts) ? result.sundayShifts : [];
   shifts.forEach((shift, shiftIndex) => {
     if (shiftIndex > 0) lines.push("");
-    lines.push(`☀️ ${escapeHtml(String(shift.label || `Chủ nhật - Ca ${shiftIndex + 1}`).toUpperCase())}`);
-    lines.push(...formatDutyPeopleLines(shift.people));
-    lines.push("");
-    lines.push("🖥 SERVER");
-    lines.push(...formatDutyPeopleLines(shift.server ? [shift.server] : []));
+    const label = /^.*ca\s*2/i.test(String(shift.label || "")) ? "🌙 Ca 2" : "☀️ Ca 1";
+    lines.push(`${label}: ${formatDutyInlinePeople(shift.people)}`);
+    lines.push(`🖥 Server: ${formatDutyInlinePeople(shift.server ? [shift.server] : [])}`);
     if (shift.note) {
-      lines.push("");
-      lines.push("📝 GHI CHÚ");
-      lines.push("");
-      lines.push(...formatDutyNoteLines(shift.note));
+      const noteValue = String(shift.note || "").replace(/^Server\s*:\s*/i, "").trim() || "-";
+      lines.push(`📝 Note: ${escapeHtml(noteValue)}`);
     }
   });
 
@@ -472,23 +439,13 @@ function formatDutyScheduleHtml(result) {
   return [
     ...formatDutyHeader(result),
     "",
-    "🌙 TRỰC TỐI",
-    ...formatDutyPeopleLines(result.dutyNight),
+    `🌙 Tối: ${formatDutyInlinePeople(result.dutyNight)}`,
+    `🌅 8h sáng: ${formatDutyInlinePeople(result.morningPrimary ? [result.morningPrimary] : [])}`,
+    `🏢 Hành chính: ${formatDutyInlinePeople(result.morningSupport)}`,
+    `🍛 Trưa: ${formatDutyInlinePeople(result.noon)}`,
+    `🖥 Server: ${formatDutyInlinePeople(result.afterHoursServer ? [result.afterHoursServer] : [])}`,
     "",
-    "🌅 CA 8H SÁNG",
-    ...formatDutyPeopleLines(result.morningPrimary ? [result.morningPrimary] : []),
-    "",
-    "🏢 HỖ TRỢ HÀNH CHÍNH",
-    ...formatDutyPeopleLines(result.morningSupport),
-    "",
-    "🍛 TRỰC TRƯA",
-    ...formatDutyPeopleLines(result.noon),
-    "",
-    "🖥 SERVER NGOÀI GIỜ",
-    ...formatDutyPeopleLines(result.afterHoursServer ? [result.afterHoursServer] : []),
-    "",
-    "📝 GHI CHÚ",
-    "",
+    "📝 Ghi chú",
     ...formatDutyNoteLines(result.note),
     "</pre>"
   ].join("\n");
