@@ -241,14 +241,16 @@ async function fetchDutyScheduleByDate(date = new Date()) {
     dutyNight: row.slice(2, 7).map((item) => String(item || "").trim()).filter(Boolean),
     note: String(row[7] || "").trim(),
     afterHoursServer: String(row[8] || "").trim(),
-    morning: row.slice(9, 14).map((item) => String(item || "").trim()).filter(Boolean),
+    morningPrimary: String(row[9] || "").trim(),
+    morningSupport: row.slice(10, 14).map((item) => String(item || "").trim()).filter(Boolean),
     noon: row.slice(14, 23).map((item) => String(item || "").trim()).filter(Boolean)
   };
 }
 
-function formatDutyLine(label, values = []) {
-  if (!values.length) return `• ${label}: -`;
-  return `• ${label}: <b>${escapeHtml(values.join(" • "))}</b>`;
+function formatDutyPeople(values = []) {
+  const items = values.map((item) => String(item || "").trim()).filter(Boolean);
+  if (!items.length) return "-";
+  return `<b>${escapeHtml(items.join(" • "))}</b>`;
 }
 
 function formatDutyScheduleHtml(result) {
@@ -259,15 +261,16 @@ function formatDutyScheduleHtml(result) {
     ].join("\n");
   }
 
-  const note = result.note ? `• Ghi chú: ${escapeHtml(result.note).replace(/\n/g, " | ")}` : "• Ghi chú: -";
-  const server = `• Server ngoài giờ: <b>${escapeHtml(result.afterHoursServer || "-")}</b>`;
+  const note = result.note ? `📝 Ghi chú: ${escapeHtml(result.note).replace(/\n/g, " | ")}` : "📝 Ghi chú: -";
+  const server = `🖥️ Server ngoài giờ: <b>${escapeHtml(result.afterHoursServer || "-")}</b>`;
 
   return [
     "📋 <b>Lịch trực</b>",
     `${escapeHtml(result.targetDate)}${result.weekday ? ` • ${escapeHtml(result.weekday)}` : ""}`,
-    formatDutyLine("Trực tối", result.dutyNight),
-    formatDutyLine("8h sáng", result.morning),
-    formatDutyLine("Trực trưa", result.noon),
+    `🌙 Trực tối: ${formatDutyPeople(result.dutyNight)}`,
+    `🌅 8h sáng: ${formatDutyPeople(result.morningPrimary ? [result.morningPrimary] : [])}`,
+    `🏢 Hỗ trợ trực hành chính: ${formatDutyPeople(result.morningSupport)}`,
+    `🍱 Trực trưa: ${formatDutyPeople(result.noon)}`,
     server,
     note
   ].join("\n");
