@@ -321,9 +321,8 @@ function formatDutyHeader(result) {
   const weekday = String(result.weekday || "").trim().replace(/\s*-\s*Ca\s*\d+.*$/i, "");
 
   return [
-    "<pre>",
-    `📅 LỊCH TRỰC ${displayDate}`,
-    `🗓 ${escapeHtml(weekday)}`
+    `📅 <b>LỊCH TRỰC ${displayDate}</b>`,
+    `🗓 <b>${escapeHtml(weekday)}</b>`
   ];
 }
 
@@ -404,7 +403,7 @@ function formatHolidayDutyScheduleHtml(result) {
     body.push(line.startsWith("📍") ? escapeHtml(line) : `📍 ${escapeHtml(line)}`);
   }
 
-  return body.concat(["", `🔗 Check lịch trực: ${escapeHtml(DUTY_SHEET_URL)}`, "</pre>"]).join("\n");
+  return body.concat(["", `🔗 <a href="${escapeHtml(DUTY_SHEET_URL)}">Check lịch trực</a>`]).join("\n");
 }
 
 function formatSundayDutyScheduleHtml(result) {
@@ -425,7 +424,7 @@ function formatSundayDutyScheduleHtml(result) {
     }
   });
 
-  return lines.join("\n") + `\n\n🔗 Check lịch trực: ${escapeHtml(DUTY_SHEET_URL)}\n</pre>`;
+  return lines.join("\n") + `\n\n🔗 <a href="${escapeHtml(DUTY_SHEET_URL)}">Check lịch trực</a>`;
 }
 
 function formatDutyScheduleHtml(result) {
@@ -456,9 +455,8 @@ function formatDutyScheduleHtml(result) {
     "📝 Ghi chú",
     ...formatDutyNoteLines(result.note),
     "",
-    `🔗 Check lịch trực: ${escapeHtml(DUTY_SHEET_URL)}`,
-    "</pre>"
-  ].filter((line, index, arr) => !(line === "📝 Ghi chú" && arr[index + 1] === "</pre>")).join("\n");
+    `🔗 <a href="${escapeHtml(DUTY_SHEET_URL)}">Check lịch trực</a>`
+  ].filter((line, index, arr) => !(line === "📝 Ghi chú" && (!arr[index + 1] || String(arr[index + 1]).startsWith("🔗 ")))).join("\n");
 }
 
 function formatWeekScheduleEntryHtml(entry, index) {
