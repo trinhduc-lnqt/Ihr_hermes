@@ -461,10 +461,10 @@ function formatPercentLine(label, ratio) {
 function formatKpiBar(label, ratio, icon = "📈") {
   const percent = Number(ratio || 0) * 100;
   const normalized = Math.max(0, Math.min(percent, 100));
-  const total = 10;
+  const total = 6;
   const filled = Math.round((normalized / 100) * total);
-  const bar = "🟩".repeat(filled) + "⬜".repeat(Math.max(0, total - filled));
-  return `${icon} ${label}: <b>${percent.toFixed(2)}%</b>\n${bar}`;
+  const bar = "▰".repeat(filled) + "▱".repeat(Math.max(0, total - filled));
+  return `${icon} ${label}: <b>${percent.toFixed(2)}%</b> <code>${bar}</code>`;
 }
 
 function formatMetricValue(value, digits = 2) {
