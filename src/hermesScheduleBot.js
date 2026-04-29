@@ -177,40 +177,13 @@ function formatHermesAccountStatus(account) {
   ].join("\n");
 }
 
-const DUTY_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1gWlj6NObCw0AMKBK5GW_2_mCPs6WoF73bNe7QgkGBDc/export?format=csv&gid=1110843393";
+const DUTY_SHEET_GVIZ_URL = "https://docs.google.com/spreadsheets/d/1gWlj6NObCw0AMKBK5GW_2_mCPs6WoF73bNe7QgkGBDc/gviz/tq?tqx=out:json&gid=1110843393";
 
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
-
-function parseCsvLine(line) {
-  const cells = [];
-  let current = "";
-  let inQuotes = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const next = line[index + 1];
-    if (char === '"') {
-      if (inQuotes && next === '"') {
-        current += '"';
-        index += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (char === ',' && !inQuotes) {
-      cells.push(current);
-      current = "";
-      continue;
-    }
-    current += char;
-  }
-  cells.push(current);
-  return cells;
 }
 
 function parseDutySheetDate(value) {
@@ -229,15 +202,33 @@ async function fetchDutyScheduleByDate(date = new Date()) {
     day: "2-digit"
   }).format(date);
 
-  const response = await fetch(DUTY_SHEET_CSV_URL);
+  const response = await fetch(DUTY_SHEET_GVIZ_URL);
   if (!response.ok) {
     throw new Error(`Không tải được Google Sheet lịch trực (${response.status}).`);
   }
 
   const text = await response.text();
-  const lines = text.split(/\r?\n/).filter(Boolean);
-  const parsedLines = lines.map(parseCsvLine);
-  const row = parsedLines.find((cells) => parseDutySheetDate(cells[0]) === targetDate);
+  const jsonText = text.match(/setResponse\((.*)\);?\s*$/s)?.[1];
+  if (!jsonText) {
+    throw new Error("Google Sheet trả dữ liệu không đúng định dạng gviz.");
+  }
+
+  let data;
+  try {
+    data = JSON.parse(jsonText);
+  } catch {
+    throw new Error("Không parse được dữ liệu lịch trực từ Google Sheet.");
+  }
+
+  const row = (data?.table?.rows || [])
+    .map((item) => (item?.c || []).map((cell) => {
+      if (!cell) return "";
+      if (cell.f !== undefined && cell.f !== null && cell.f !== "") return String(cell.f);
+      if (cell.v === null || cell.v === undefined) return "";
+      return String(cell.v);
+    }))
+    .find((cells) => parseDutySheetDate(cells[0]) === targetDate);
+
   if (!row) {
     return { ok: true, targetDate, found: false };
   }
