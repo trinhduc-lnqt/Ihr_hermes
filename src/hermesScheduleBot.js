@@ -240,28 +240,56 @@ async function fetchDutyScheduleByDate(date = new Date()) {
     throw new Error("Không parse được dữ liệu lịch trực từ Google Sheet.");
   }
 
-  const row = (data?.table?.rows || [])
+  const rows = (data?.table?.rows || [])
     .map((item) => (item?.c || []).map((cell) => {
       if (!cell) return "";
       if (cell.f !== undefined && cell.f !== null && cell.f !== "") return String(cell.f);
       if (cell.v === null || cell.v === undefined) return "";
       return String(cell.v);
     }))
-    .find((cells) => parseDutySheetDate(cells[0]) === targetDate);
+    .filter((cells) => parseDutySheetDate(cells[0]) === targetDate);
 
-  if (!row) {
+  if (!rows.length) {
     return { ok: true, targetDate, found: false };
   }
 
-  const weekday = String(row[1] || "").trim();
-  const note = String(row[7] || "").trim();
+  const firstRow = rows[0];
+  const weekday = String(firstRow[1] || "").trim();
+  const note = rows.map((row) => String(row[7] || "").trim()).filter(Boolean).join("\n");
+  const isHoliday = /nghỉ lễ/i.test(note);
+  const isSundayShift = rows.some((row) => /chủ nhật/i.test(String(row[1] || "").trim()));
+
+  if (isSundayShift) {
+    const sundayShifts = rows.map((row) => ({
+      label: String(row[1] || "").trim(),
+      people: row.slice(2, 7).map((item) => String(item || "").trim()).filter(Boolean),
+      server: String(row[8] || "").trim(),
+      note: String(row[7] || "").trim()
+    }));
+
+    return {
+      ok: true,
+      targetDate,
+      found: true,
+      weekday,
+      note,
+      isHoliday,
+      isSundayShift,
+      sundayShifts,
+      dutyNight: [],
+      afterHoursServer: "",
+      morningPrimary: "",
+      morningSupport: [],
+      noon: []
+    };
+  }
+
+  const row = firstRow;
   const dutyNight = row.slice(2, 7).map((item) => String(item || "").trim()).filter(Boolean);
   const afterHoursServer = String(row[8] || "").trim();
   const morningPrimary = String(row[9] || "").trim();
   const morningSupport = row.slice(10, 14).map((item) => String(item || "").trim()).filter(Boolean);
   const noon = row.slice(14, 23).map((item) => String(item || "").trim()).filter(Boolean);
-  const isHoliday = /nghỉ lễ/i.test(note);
-  const isSundayShift = /chủ nhật/i.test(weekday);
 
   return {
     ok: true,
@@ -275,7 +303,8 @@ async function fetchDutyScheduleByDate(date = new Date()) {
     morningSupport,
     noon,
     isHoliday,
-    isSundayShift
+    isSundayShift,
+    sundayShifts: []
   };
 }
 
@@ -400,19 +429,28 @@ function formatHolidayDutyScheduleHtml(result) {
 }
 
 function formatSundayDutyScheduleHtml(result) {
-  return [
+  const lines = [
     ...formatDutyHeader(result),
-    "",
-    "☀️ CA CHỦ NHẬT",
-    ...formatDutyPeopleLines(result.dutyNight),
-    "",
-    "🖥 SERVER",
-    ...formatDutyPeopleLines(result.afterHoursServer ? [result.afterHoursServer] : []),
-    "",
-    "📝 GHI CHÚ",
-    "",
-    ...formatDutyNoteLines(result.note)
-  ].join("\n") + "\n</pre>";
+    ""
+  ];
+
+  const shifts = Array.isArray(result.sundayShifts) ? result.sundayShifts : [];
+  shifts.forEach((shift, shiftIndex) => {
+    if (shiftIndex > 0) lines.push("");
+    lines.push(`☀️ ${escapeHtml(String(shift.label || `Chủ nhật - Ca ${shiftIndex + 1}`).toUpperCase())}`);
+    lines.push(...formatDutyPeopleLines(shift.people));
+    lines.push("");
+    lines.push("🖥 SERVER");
+    lines.push(...formatDutyPeopleLines(shift.server ? [shift.server] : []));
+    if (shift.note) {
+      lines.push("");
+      lines.push("📝 GHI CHÚ");
+      lines.push("");
+      lines.push(...formatDutyNoteLines(shift.note));
+    }
+  });
+
+  return lines.join("\n") + "\n</pre>";
 }
 
 function formatDutyScheduleHtml(result) {
