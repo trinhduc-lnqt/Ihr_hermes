@@ -487,7 +487,20 @@ async function showKpiSummary(ctx) {
   await ctx.reply([
     "🎯 <b>KPI theo tháng</b>",
     "",
-    "Sếp chọn đúng tháng cần xem. Ví dụ tháng 3/2026 sẽ lấy sheet <code>2026_03</code>."
+    "Theo dõi KPI đều để biết mình đang bứt tốc hay bị hụt hơi trong tháng này.",
+    "Chạm đúng tháng cần xem, bot sẽ lấy đúng sheet KPI tương ứng của tháng đó.",
+    "",
+    "<b>Cách xem:</b>",
+    "• Tháng 03/2026 → sheet <code>2026_03</code>",
+    "• Tháng 04/2026 → sheet <code>2026_04</code>",
+    "",
+    "Bên trong sẽ có đủ:",
+    "• KPI Deploy",
+    "• KPI Hotline",
+    "• KPI SUM",
+    "• POINT Thực tế, Bonus, Tính lương",
+    "",
+    "Giữ nhịp tốt từng tháng thì cuối kỳ nhìn KPI mới đã mắt 💪"
   ].join("\n"), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
