@@ -463,8 +463,12 @@ function formatKpiBar(label, ratio, icon = "📈") {
   const normalized = Math.max(0, Math.min(percent, 100));
   const total = 6;
   const filled = Math.round((normalized / 100) * total);
-  const bar = "▰".repeat(filled) + "▱".repeat(Math.max(0, total - filled));
-  return `${icon} ${label}: <b>${percent.toFixed(2)}%</b> <code>${bar}</code>`;
+  const isDanger = percent < 80;
+  const filledChar = isDanger ? "🟥" : "🟩";
+  const emptyChar = isDanger ? "⬜" : "▱";
+  const statusIcon = isDanger ? "🚨" : icon;
+  const bar = filledChar.repeat(filled) + emptyChar.repeat(Math.max(0, total - filled));
+  return `${statusIcon} ${label}: <b>${percent.toFixed(2)}%</b> <code>${bar}</code>`;
 }
 
 function formatMetricValue(value, digits = 2) {
