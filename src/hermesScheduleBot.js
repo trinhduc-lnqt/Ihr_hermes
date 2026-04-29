@@ -110,6 +110,13 @@ function firstValidScheduleLink(entry) {
     .find((link) => /^https?:\/\//i.test(String(link))) || "";
 }
 
+function getDeployActionLabel(order = null) {
+  if (!order || typeof order !== "object") return "";
+  if (order?.spCompletedAt) return "";
+  if (order?.spDeloyStartAt) return "▶️ Tiếp tục triển khai";
+  return "🚀 Bắt đầu triển khai";
+}
+
 function workScheduleKeyboard(result, cacheKey) {
   const rows = [];
   const entries = result?.entries || [];
@@ -125,11 +132,16 @@ function workScheduleKeyboard(result, cacheKey) {
   return Markup.inlineKeyboard(rows);
 }
 
-function workScheduleDetailKeyboard(result, cacheKey, entry = null) {
+function workScheduleDetailKeyboard(result, cacheKey, entry = null, order = null) {
   const rows = [];
   const link = firstValidScheduleLink(entry);
+  const deployActionLabel = getDeployActionLabel(order);
   if (link) {
-    rows.push([Markup.button.url("🔗 Mở trên Hermes", link)]);
+    const topRow = [Markup.button.url("🔗 Mở trên Hermes", link)];
+    if (deployActionLabel) {
+      topRow.push(Markup.button.url(deployActionLabel, link));
+    }
+    rows.push(topRow);
   }
   rows.push([
     Markup.button.callback("📋 Danh sách", `action:hermes_work_list:${cacheKey}`),
@@ -698,7 +710,7 @@ bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
   await ctx.reply(formatRequestOrderDetailHtml(detail.order, { checkedAt: detail.checkedAt }), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
-    ...workScheduleDetailKeyboard(cached.result, cacheKey, entry)
+    ...workScheduleDetailKeyboard(cached.result, cacheKey, entry, detail.order)
   });
 });
 
