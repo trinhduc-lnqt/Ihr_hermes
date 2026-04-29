@@ -1840,6 +1840,115 @@ export async function getRequestOrderDetailById({ username, password, requestOrd
   }
 }
 
+export async function startDeployRequestOrderById({ username, password, requestOrderId, storageState = null }) {
+  if (!requestOrderId) {
+    return { ok: false, message: "Không có request-order id để bắt đầu triển khai." };
+  }
+
+  const runWithSession = async (session, currentStorageState = null) => {
+    const detail = await fetchRequestOrderFromLoggedInPage(session.page, requestOrderId, session.apiResponses || []);
+    if (!detail?.ok || !detail?.order?._id) {
+      return {
+        ok: false,
+        message: detail?.message || "Không lấy được chi tiết PYC trước khi bắt đầu triển khai.",
+        sessionExpired: Boolean(detail?.sessionExpired),
+        storageState: currentStorageState
+      };
+    }
+
+    const order = detail.order;
+    if (order.spStatus === "DELOY_DONE" || order.spStatus === "REVIEWED") {
+      return {
+        ok: false,
+        message: `PYC đã ở trạng thái ${order.spStatus}, không thể bắt đầu triển khai nữa.`,
+        order,
+        checkedAt: new Date(),
+        storageState: currentStorageState
+      };
+    }
+
+    if (order.spStatus !== "DELOYING") {
+      const apiUrl = new URL("/api/request-order/update-status", config.hermesLoginUrl).toString();
+      const response = await session.page.evaluate(async ({ url, body }) => {
+        const res = await fetch(url, {
+          method: "PUT",
+          credentials: "include",
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify(body)
+        });
+        return {
+          status: res.status,
+          body: await res.text()
+        };
+      }, {
+        url: apiUrl,
+        body: {
+          _id: order._id,
+          spStatus: "DELOYING"
+        }
+      }).catch((error) => ({ status: 0, body: error.message || "" }));
+
+      if ([401, 403].includes(response.status) || /login|unauthori[sz]ed|otp|forbidden/i.test(response.body || "")) {
+        return {
+          ok: false,
+          sessionExpired: true,
+          message: "Phiên Hermes đã hết hạn hoặc API yêu cầu đăng nhập lại.",
+          storageState: currentStorageState
+        };
+      }
+
+      const parsed = parseJsonSafe(response.body);
+      const success = response.status >= 200 && response.status < 300 && !(parsed && parsed.error);
+      if (!success) {
+        return {
+          ok: false,
+          message: parsed?.message || parsed?.error_description || parsed?.error || `Hermes update-status lỗi HTTP ${response.status}.`,
+          responseStatus: response.status,
+          responseBody: response.body,
+          order,
+          storageState: currentStorageState
+        };
+      }
+    }
+
+    const refreshed = await fetchRequestOrderFromLoggedInPage(session.page, requestOrderId, session.apiResponses || []);
+    return {
+      ...refreshed,
+      ok: Boolean(refreshed?.ok),
+      message: refreshed?.ok
+        ? (order.spStatus === "DELOYING" ? "PYC đã ở trạng thái đang triển khai." : "Đã bắt đầu triển khai PYC trên Hermes.")
+        : (refreshed?.message || "Đã gọi API bắt đầu triển khai nhưng không đọc lại được chi tiết PYC."),
+      storageState: await session.context.storageState().catch(() => currentStorageState)
+    };
+  };
+
+  if (storageState) {
+    const session = await createHermesBrowserContext(storageState);
+    try {
+      await session.page.goto(new URL("/support-working-schedule", config.hermesLoginUrl).toString(), { waitUntil: "domcontentloaded", timeout: config.timeoutMs }).catch(() => {});
+      await session.page.waitForTimeout(1500);
+      if (!(await hasVisibleOtpInput(session.page)) && await isLoggedIn(session.page)) {
+        return await runWithSession(session, storageState);
+      }
+      return { ok: false, sessionExpired: true, message: "Phiên Hermes đã hết hạn hoặc bị yêu cầu đăng nhập lại." };
+    } finally {
+      await session.browser.close().catch(() => {});
+    }
+  }
+
+  const login = await loginHermesPage({ username, password });
+  if (!login.ok) {
+    return { ...login, sessionExpired: login.otpRequired };
+  }
+  try {
+    return await runWithSession(login, null);
+  } finally {
+    await login.browser.close().catch(() => {});
+  }
+}
+
 export function getRequestOrderIdFromScheduleEntry(entry) {
   return extractRequestOrderIdFromEntry(entry);
 }

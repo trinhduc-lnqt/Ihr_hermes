@@ -15,6 +15,7 @@ import {
   getRequestOrderPageUrlFromScheduleEntry,
   getWorkScheduleByDay,
   parseWorkScheduleDateInput,
+  startDeployRequestOrderById,
   submitHermesOtp,
   submitHermesOtpAndGetWorkSchedule,
   validateHermesLogin
@@ -136,10 +137,14 @@ function workScheduleDetailKeyboard(result, cacheKey, entry = null, order = null
   const rows = [];
   const link = firstValidScheduleLink(entry);
   const deployActionLabel = getDeployActionLabel(order);
-  if (link) {
-    const topRow = [Markup.button.url("🔗 Mở trên Hermes", link)];
-    if (deployActionLabel) {
-      topRow.push(Markup.button.url(deployActionLabel, link));
+  const requestOrderId = getRequestOrderIdFromScheduleEntry(entry);
+  if (link || (deployActionLabel && requestOrderId)) {
+    const topRow = [];
+    if (link) {
+      topRow.push(Markup.button.url("🔗 Mở trên Hermes", link));
+    }
+    if (deployActionLabel && requestOrderId) {
+      topRow.push(Markup.button.callback(deployActionLabel, `action:hermes_deploy_start:${cacheKey}:${requestOrderId}`));
     }
     rows.push(topRow);
   }
@@ -725,6 +730,51 @@ bot.action(/^action:hermes_work_list:(.+)$/, async (ctx) => {
   await ctx.reply(formatWorkScheduleResult(cached.result), {
     parse_mode: "HTML",
     ...workScheduleKeyboard(cached.result, cacheKey)
+  });
+});
+
+bot.action(/^action:hermes_deploy_start:(.+):([a-f0-9]{24})$/, async (ctx) => {
+  const cacheKey = ctx.match?.[1];
+  const requestOrderId = ctx.match?.[2];
+  const cached = workScheduleCache.get(cacheKey);
+  await ctx.answerCbQuery("Đang bắt đầu triển khai...");
+  if (!cached) {
+    await ctx.reply("Dữ liệu lịch đã hết hạn. Sếp bấm lấy lịch lại nhé.", keyboard());
+    return;
+  }
+
+  const account = await getHermesAccountOrReply(ctx);
+  if (!account) return;
+
+  await ctx.reply(`Đang gọi API bắt đầu triển khai cho PYC ${requestOrderId}...`);
+  const result = await enqueue(() => startDeployRequestOrderById({
+    username: account.hermesUsername,
+    password: account.hermesPassword,
+    requestOrderId,
+    storageState: account.hermesSession || null
+  }));
+
+  if (result.sessionExpired) await clearHermesSession(ctx.chat.id);
+  if (result.otpRequired) {
+    pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_otp", date: cached.result.targetDate });
+    await ctx.reply("Phiên Hermes đã hết hạn nên Hermes yêu cầu OTP lại. Sếp gửi mã OTP mới nhất rồi bấm lịch lại nhé. /cancel để huỷ.");
+    return;
+  }
+  if (!result.ok) {
+    await ctx.reply(`Bắt đầu triển khai lỗi: ${String(result.message || "Lỗi không xác định").slice(0, 700)}`);
+    return;
+  }
+  if (result.storageState) {
+    await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: result.storageState });
+  }
+  await ctx.reply([
+    result.message || "Đã bắt đầu triển khai PYC trên Hermes.",
+    result.order?.roCode ? `PYC: #${result.order.roCode}` : "",
+    result.order?.spStatus ? `Trạng thái SP: ${result.order.spStatus}` : ""
+  ].filter(Boolean).join("\n"), {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...workScheduleDetailKeyboard(cached.result, cacheKey, cached.result.entries?.find((entry) => getRequestOrderIdFromScheduleEntry(entry) === requestOrderId) || null, result.order || null)
   });
 });
 
