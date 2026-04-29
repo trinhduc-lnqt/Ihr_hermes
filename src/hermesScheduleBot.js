@@ -260,6 +260,14 @@ const START_QUOTES = [
   [
     "Gió ngoài kia thích lang thang,",
     "còn em thì thích giữ hàng lịch cho Sếp."
+  ],
+  [
+    "Việc chạy ngược, lịch đừng loạn,",
+    "để em gom lại cho gọn từng ngày."
+  ],
+  [
+    "Bấm vào một nhịp là xem,",
+    "lịch đâu phiếu đó em đem tới liền."
   ]
 ];
 
@@ -271,22 +279,22 @@ function pickStartQuote() {
 function helpText(telegramId) {
   const quote = pickStartQuote();
   return [
-    "👋 <b>Chào Sếp, em là Hermes Bot.</b>",
+    "✨ <b>Hermes lịch làm việc</b>",
+    "<i>ngắn gọn, đúng ngày, đúng phiếu</i>",
     "",
     ...quote,
     "",
-    "<b>Em làm được gì:</b>",
-    "• Xem lịch hôm nay / hôm qua / ngày mai",
-    "• Xem lịch cả tuần",
-    "• Mở nhanh chi tiết phiếu yêu cầu từ lịch",
-    "• Lưu và quản lý tài khoản Hermes riêng cho Sếp",
+    "<b>Chức năng chính</b>",
+    "• Hôm qua • Hôm nay • Ngày mai • Cả tuần",
+    "• Mở nhanh phiếu yêu cầu ngay từ lịch",
+    "• Lưu tài khoản Hermes riêng cho Sếp",
     "",
-    "<b>Cách dùng nhanh:</b>",
-    "• Bấm menu bên dưới để xem lịch ngay",
-    "• Hoặc gõ: <code>/lich</code>, <code>/lich mai</code>, <code>/lich 28/04</code>",
-    "• Cần lưu tài khoản: <code>/sethermes</code>",
+    "<b>Dùng nhanh</b>",
+    "• Bấm nút menu bên dưới",
+    "• Hoặc gõ <code>/lich</code> • <code>/lich mai</code> • <code>/lich 28/04</code>",
+    "• Lưu tài khoản bằng <code>/sethermes</code>",
     "",
-    `🆔 <b>Telegram ID:</b> <code>${telegramId}</code>`
+    `🆔 <code>${telegramId}</code>`
   ].join("\n");
 }
 
@@ -492,10 +500,8 @@ bot.command("id", async (ctx) => {
 
 bot.command("menu", async (ctx) => {
   await ctx.reply([
-    "✨ <b>Menu Hermes của Sếp</b>",
-    "",
-    "Muốn xem nhanh thì bấm nút bên dưới,",
-    "muốn đào sâu thì em mở tiếp chi tiết phiếu cho Sếp."
+    "✨ <b>Menu Hermes</b>",
+    "<i>chạm đúng nút, ra đúng lịch</i>"
   ].join("\n"), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
@@ -567,10 +573,8 @@ bot.command(["lich", "schedule", "workschedule"], async (ctx) => {
 bot.action("action:menu", async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply([
-    "✨ <b>Menu Hermes của Sếp</b>",
-    "",
-    "Chọn một nhịp là ra lịch,",
-    "chọn đúng phiếu là ra việc."
+    "✨ <b>Menu Hermes</b>",
+    "<i>chọn ngày trước, xử lý việc sau</i>"
   ].join("\n"), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
