@@ -331,10 +331,11 @@ function formatDutyInlinePeople(values = []) {
   return items.length ? escapeHtml(items.join(" • ")) : "-";
 }
 
-function formatDutyAlignedLine(icon, label, value) {
+function formatDutyAlignedLine(icon, label, value, width = 15) {
   const cleanLabel = String(label || "").trim();
-  const paddedLabel = cleanLabel.padEnd(15, " ");
-  return `${icon} ${escapeHtml(paddedLabel)}: ${value}`;
+  const padSize = Math.max(0, width - cleanLabel.length);
+  const paddedLabel = `${escapeHtml(cleanLabel)}${"&nbsp;".repeat(padSize)}`;
+  return `${icon} ${paddedLabel}: ${value}`;
 }
 
 function splitNoteGroupItems(rawValue) {
@@ -370,10 +371,12 @@ function formatDutyNoteLines(note) {
     return [];
   }
 
+  const maxTitleLength = groups.reduce((max, group) => Math.max(max, String(group.title || "").trim().length), 0);
+
   return groups.map((group) => {
-    const title = escapeHtml(group.title || "").trim();
+    const title = String(group.title || "").trim();
     const value = group.items.length ? escapeHtml(group.items.join(" • ")) : "";
-    return value ? `📍 ${title}: ${value}` : `📍 ${title}:`;
+    return formatDutyAlignedLine("📍", title, value, Math.max(18, maxTitleLength));
   });
 }
 
@@ -391,8 +394,8 @@ function formatHolidayDutyScheduleHtml(result) {
     const match = line.match(/^(Nghỉ lễ[^:]*|Ca\s*\d+[^:]*):\s*(.*)$/i);
     if (match) {
       const [, title, value] = match;
-      const normalizedTitle = /^ca\s*1/i.test(title) ? "☀️ Ca 1" : /^ca\s*2/i.test(title) ? "🌙 Ca 2" : `🎊 ${title}`;
-      body.push(`${escapeHtml(normalizedTitle)}: ${escapeHtml((value || "-").trim() || "-")}`);
+      const normalizedTitle = /^ca\s*1/i.test(title) ? ["☀️", "Trực ca 1"] : /^ca\s*2/i.test(title) ? ["🌙", "Trực ca 2"] : ["🎊", title];
+      body.push(formatDutyAlignedLine(normalizedTitle[0], normalizedTitle[1], escapeHtml((value || "-").trim() || "-"), 15));
       continue;
     }
 
@@ -400,7 +403,7 @@ function formatHolidayDutyScheduleHtml(result) {
       body.push("", "📝 Ghi chú");
       hasNoteTitle = true;
     }
-    body.push(line.startsWith("📍") ? escapeHtml(line) : `📍 ${escapeHtml(line)}`);
+    body.push(line.startsWith("📍") ? escapeHtml(line) : formatDutyAlignedLine("📍", line, "", 18));
   }
 
   return body.concat(["", `🔗 <a href="${escapeHtml(DUTY_SHEET_URL)}">Check lịch trực</a>`]).join("\n");
