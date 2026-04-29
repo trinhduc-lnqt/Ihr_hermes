@@ -464,6 +464,7 @@ function formatKpiBar(label, ratio, icon = "🔋") {
   const total = 18;
   const pointerIndex = Math.max(0, Math.min(total - 1, Math.round((normalized / 100) * (total - 1))));
   const labelWidth = 8;
+  const percentWidth = 7;
 
   let statusIcon = icon;
   if (percent < 80) {
@@ -480,7 +481,7 @@ function formatKpiBar(label, ratio, icon = "🔋") {
     return "·";
   }).join("");
 
-  return `${statusIcon} ${padRight(label, labelWidth)} 0 <code>${barChars}</code> 100 <b>${percent.toFixed(2)}%</b>`;
+  return `${statusIcon} ${padRight(label, labelWidth)} <code>${barChars}</code> <b>${padLeft(percent.toFixed(2) + "%", percentWidth)}</b>`;
 }
 
 function formatMetricValue(value, digits = 2) {
