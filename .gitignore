@@ -1,7 +1,9 @@
 node_modules/
-artifacts/
+*.log
 .env
-data/
-logs/
-bot.log
-vpn-configs/
+data/users.json
+data/users.json.bak
+data/hermes-users.json
+vpn-configs/*.conf
+vpn-configs/*.conf.bak
+artifacts/
