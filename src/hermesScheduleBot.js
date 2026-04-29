@@ -448,15 +448,24 @@ function kpiKeyboard(months = []) {
   return Markup.inlineKeyboard(rows);
 }
 
+function formatPercentGapLine(label, ratio) {
+  const percent = Number(ratio || 0) * 100;
+  const gap = 100 - percent;
+  if (gap > 0) {
+    return `${label}: <b>${percent.toFixed(1)}%</b> • thiếu <b>${gap.toFixed(1)}%</b> để đạt 100%`;
+  }
+  return `${label}: <b>${percent.toFixed(1)}%</b> • vượt <b>${Math.abs(gap).toFixed(1)}%</b>`;
+}
+
 function formatKpiMonthTelegramHtml(monthData, item) {
   const monthLabel = String(monthData.month || "").replace("_", "/");
   return [
     `🎯 <b>KPI tháng ${escapeHtml(monthLabel)}</b>`,
     `👤 <b>${escapeHtml(item.support)}</b>`,
     "",
-    `KPI Deploy (%): <b>${Number((item.deployPct || 0) * 100).toFixed(1)}%</b>`,
-    `KPI Hotline (%): <b>${Number((item.hotlinePct || 0) * 100).toFixed(1)}%</b>`,
-    `KPI SUM: <b>${Number(item.kpiSum || 0).toFixed(2)}</b>`,
+    formatPercentGapLine("KPI Deploy (%)", item.deployPct),
+    formatPercentGapLine("KPI Hotline (%)", item.hotlinePct),
+    `KPI SUM: <b>${String(item.kpiSum ?? 0)}</b>`,
     "",
     `POINT Thực tế (1): <b>${Number(item.pointActual || 0).toFixed(2)}</b>`,
     `POINT Bonus (2): <b>${Number(item.pointBonus || 0).toFixed(2)}</b>`,
