@@ -114,18 +114,14 @@ function workScheduleKeyboard(result, cacheKey) {
   const rows = [];
   const entries = result?.entries || [];
   for (let index = 0; index < Math.min(entries.length, 10); index += 1) {
-    const entry = entries[index];
-    const label = compactButtonLabel(formatWorkScheduleSummaryLine(entry));
-    rows.push([Markup.button.callback(`${index + 1}. ${label}`, `action:hermes_work_detail:${cacheKey}:${index}`)]);
+    rows.push([Markup.button.callback(`📄 Chi tiết lịch ${index + 1}`, `action:hermes_work_detail:${cacheKey}:${index}`)]);
   }
   rows.push([
     Markup.button.callback("◀️ Ngày trước", `action:hermes_work_date:${result.targetDate}:-1`),
     Markup.button.callback("Ngày sau ▶️", `action:hermes_work_date:${result.targetDate}:1`)
   ]);
-  rows.push([
-    Markup.button.callback("📆 Chọn ngày khác", "action:hermes_work_other"),
-    Markup.button.callback("🏠 Về menu", "action:menu")
-  ]);
+  rows.push([Markup.button.callback("📆 Chọn ngày khác", "action:hermes_work_other")]);
+  rows.push([Markup.button.callback("🏠 Về menu chính", "action:menu")]);
   return Markup.inlineKeyboard(rows);
 }
 
@@ -135,11 +131,9 @@ function workScheduleDetailKeyboard(result, cacheKey, entry = null) {
   if (link) {
     rows.push([Markup.button.url("🔗 Mở trên Hermes", link)]);
   }
-  rows.push([Markup.button.callback("📋 Quay lại danh sách lịch", `action:hermes_work_list:${cacheKey}`)]);
-  rows.push([
-    Markup.button.callback("📆 Chọn ngày khác", "action:hermes_work_other"),
-    Markup.button.callback("🏠 Về menu", "action:menu")
-  ]);
+  rows.push([Markup.button.callback("📋 Danh sách lịch", `action:hermes_work_list:${cacheKey}`)]);
+  rows.push([Markup.button.callback("📆 Chọn ngày khác", "action:hermes_work_other")]);
+  rows.push([Markup.button.callback("🏠 Về menu chính", "action:menu")]);
   return Markup.inlineKeyboard(rows);
 }
 
