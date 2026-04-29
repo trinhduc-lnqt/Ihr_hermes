@@ -119,9 +119,9 @@ function workScheduleKeyboard(result, cacheKey) {
   rows.push([
     Markup.button.callback("⬅️ Hôm qua", `action:hermes_work_date:${result.targetDate}:-1`),
     Markup.button.callback("➡️ Ngày mai", `action:hermes_work_date:${result.targetDate}:1`),
-    Markup.button.callback("📆 Chọn ngày khác", "action:hermes_work_other"),
-    Markup.button.callback("🏠 Về menu chính", "action:menu")
+    Markup.button.callback("📆 Chọn ngày khác", "action:hermes_work_other")
   ]);
+  rows.push([Markup.button.callback("🏠 Về menu chính", "action:menu")]);
   return Markup.inlineKeyboard(rows);
 }
 
