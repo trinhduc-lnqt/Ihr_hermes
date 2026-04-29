@@ -88,23 +88,24 @@ async function isAllowedUser(ctx) {
 
 function keyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback("📌 Tổng hợp hôm nay", "action:today_dashboard")],
+    [Markup.button.callback("📌 Tổng hợp", "action:today_dashboard"), Markup.button.callback("🎯 KPI", "action:hermes_kpi")],
 
-    [Markup.button.callback("🗓️ Lịch làm việc hôm nay", "action:hermes_work_offset:0")],
+    [Markup.button.callback("🗓️ Lịch làm việc", "action:hermes_work_offset:0")],
     [
       Markup.button.callback("⬅️ Hôm qua", "action:hermes_work_offset:-1"),
+      Markup.button.callback("📅 Hôm nay", "action:hermes_work_offset:0"),
       Markup.button.callback("➡️ Ngày mai", "action:hermes_work_offset:1")
     ],
-    [Markup.button.callback("🗂️ Lịch làm việc cả tuần", "action:hermes_work_week")],
+    [Markup.button.callback("🗂️ Cả tuần", "action:hermes_work_week")],
 
-    [Markup.button.callback("📋 Lịch trực hôm nay", "action:duty_today")],
-    [Markup.button.callback("🗓️ Lịch trực cả tuần", "action:duty_week")],
+    [Markup.button.callback("📋 Lịch trực", "action:duty_today")],
+    [
+      Markup.button.callback("📅 Hôm nay", "action:duty_today"),
+      Markup.button.callback("🗓️ Cả tuần", "action:duty_week")
+    ],
 
-    [Markup.button.callback("🎯 KPI tháng/năm", "action:hermes_kpi")],
-
-    [Markup.button.callback("🔐 Tài khoản Hermes", "action:hermes_account")],
-    [Markup.button.callback("🗑️ Xoá tài khoản Hermes", "action:delete_hermes")],
-    [Markup.button.callback("👤 User hiện tại", "action:hermes_current_user")]
+    [Markup.button.callback("🔐 Tài khoản", "action:hermes_account"), Markup.button.callback("👤 User", "action:hermes_current_user")],
+    [Markup.button.callback("🗑️ Xoá tài khoản", "action:delete_hermes")]
   ]);
 }
 
