@@ -448,30 +448,27 @@ function kpiKeyboard(months = []) {
   return Markup.inlineKeyboard(rows);
 }
 
-function formatPercentGapLine(label, ratio) {
+function formatPercentLine(label, ratio) {
   const percent = Number(ratio || 0) * 100;
-  const gap = 100 - percent;
-  if (gap > 0) {
-    return `${label}: <b>${percent.toFixed(1)}%</b> • thiếu <b>${gap.toFixed(1)}%</b> để đạt 100%`;
-  }
-  return `${label}: <b>${percent.toFixed(1)}%</b> • vượt <b>${Math.abs(gap).toFixed(1)}%</b>`;
+  return `${label}: <b>${percent.toFixed(2)}%</b>`;
 }
 
 function formatKpiMonthTelegramHtml(monthData, item) {
   const monthLabel = String(monthData.month || "").replace("_", "/");
+  const kpiSumPercent = Number(item.kpiSum || 0) * 100;
   return [
     `🎯 <b>KPI tháng ${escapeHtml(monthLabel)}</b>`,
     `👤 <b>${escapeHtml(item.support)}</b>`,
     "",
-    "┏━━ 📊 <b>KHUNG KPI</b> ━━",
-    `┣ ${formatPercentGapLine("🚀 KPI Deploy", item.deployPct)}`,
-    `┣ ${formatPercentGapLine("🎧 KPI Hotline", item.hotlinePct)}`,
-    `┗ 🧮 KPI SUM: <b>${String(item.kpiSum ?? 0)}</b>`,
+    "📊 <b>KPI</b>",
+    `• ${formatPercentLine("🚀 KPI Deploy", item.deployPct)}`,
+    `• ${formatPercentLine("🎧 KPI Hotline", item.hotlinePct)}`,
+    `• 🧮 KPI SUM: <b>${kpiSumPercent.toFixed(2)}%</b>`,
     "",
-    "┏━━ 💰 <b>KHUNG POINT TÍNH LƯƠNG</b> ━━",
-    `┣ 💵 POINT Thực tế (1): <b>${Number(item.pointActual || 0).toFixed(2)}</b>`,
-    `┣ 🎁 POINT Bonus (2): <b>${Number(item.pointBonus || 0).toFixed(2)}</b>`,
-    `┗ 🏆 POINT Tính lương: <b>${Number(item.pointSalary || 0).toFixed(2)}</b>`
+    "💰 <b>Tính lương</b>",
+    `• 💵 POINT Thực tế (1): <b>${Number(item.pointActual || 0).toFixed(2)}</b>`,
+    `• 🎁 POINT Bonus (2): <b>${Number(item.pointBonus || 0).toFixed(2)}</b>`,
+    `• 🏆 POINT Tính lương: <b>${Number(item.pointSalary || 0).toFixed(2)}</b>`
   ].join("\n");
 }
 
