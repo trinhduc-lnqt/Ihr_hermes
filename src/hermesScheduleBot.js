@@ -253,6 +253,22 @@ function formatDutyPeople(values = []) {
   return `<b>${escapeHtml(items.join(" • "))}</b>`;
 }
 
+function formatDutyNoteLines(note) {
+  const lines = String(note || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    return ["🧾 Ghi chú: -"];
+  }
+
+  return [
+    "🧾 Ghi chú:",
+    ...lines.map((line) => `   └─ ${escapeHtml(line)}`)
+  ];
+}
+
 function formatDutyScheduleHtml(result) {
   if (!result?.found) {
     return [
@@ -261,18 +277,17 @@ function formatDutyScheduleHtml(result) {
     ].join("\n");
   }
 
-  const note = result.note ? `📝 Ghi chú: ${escapeHtml(result.note).replace(/\n/g, " | ")}` : "📝 Ghi chú: -";
   const server = `🖥️ Server ngoài giờ: <b>${escapeHtml(result.afterHoursServer || "-")}</b>`;
 
   return [
-    "📋 <b>Lịch trực</b>",
-    `${escapeHtml(result.targetDate)}${result.weekday ? ` • ${escapeHtml(result.weekday)}` : ""}`,
-    `🌙 Trực tối: ${formatDutyPeople(result.dutyNight)}`,
-    `🌅 8h sáng: ${formatDutyPeople(result.morningPrimary ? [result.morningPrimary] : [])}`,
-    `🏢 Hỗ trợ trực hành chính: ${formatDutyPeople(result.morningSupport)}`,
-    `🍱 Trực trưa: ${formatDutyPeople(result.noon)}`,
+    "🗂️ <b>Lịch trực</b>",
+    `📆 ${escapeHtml(result.targetDate)}${result.weekday ? ` • ${escapeHtml(result.weekday)}` : ""}`,
+    `🌃 Trực tối: ${formatDutyPeople(result.dutyNight)}`,
+    `🌄 8h sáng: ${formatDutyPeople(result.morningPrimary ? [result.morningPrimary] : [])}`,
+    `🏬 Hỗ trợ trực hành chính: ${formatDutyPeople(result.morningSupport)}`,
+    `🍛 Trực trưa: ${formatDutyPeople(result.noon)}`,
     server,
-    note
+    ...formatDutyNoteLines(result.note)
   ].join("\n");
 }
 
