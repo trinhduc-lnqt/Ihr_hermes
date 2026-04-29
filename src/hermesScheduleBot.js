@@ -279,22 +279,18 @@ function pickStartQuote() {
 function helpText(telegramId) {
   const quote = pickStartQuote();
   return [
-    "✨ <b>Hermes lịch làm việc</b>",
-    "<i>ngắn gọn, đúng ngày, đúng phiếu</i>",
+    "<b>Hermes Bot</b> • lịch làm việc cho Sếp",
     "",
     ...quote,
     "",
-    "<b>Chức năng chính</b>",
-    "• Hôm qua • Hôm nay • Ngày mai • Cả tuần",
-    "• Mở nhanh phiếu yêu cầu ngay từ lịch",
-    "• Lưu tài khoản Hermes riêng cho Sếp",
+    "<b>Xem nhanh</b>",
+    "Hôm qua • Hôm nay • Ngày mai • Cả tuần",
     "",
-    "<b>Dùng nhanh</b>",
-    "• Bấm nút menu bên dưới",
-    "• Hoặc gõ <code>/lich</code> • <code>/lich mai</code> • <code>/lich 28/04</code>",
-    "• Lưu tài khoản bằng <code>/sethermes</code>",
+    "<b>Lệnh dùng nhanh</b>",
+    "<code>/lich</code> • <code>/lich mai</code> • <code>/lich 28/04</code>",
+    "<code>/sethermes</code> để lưu tài khoản",
     "",
-    `🆔 <code>${telegramId}</code>`
+    `ID: <code>${telegramId}</code>`
   ].join("\n");
 }
 
@@ -499,10 +495,7 @@ bot.command("id", async (ctx) => {
 });
 
 bot.command("menu", async (ctx) => {
-  await ctx.reply([
-    "✨ <b>Menu Hermes</b>",
-    "<i>chạm đúng nút, ra đúng lịch</i>"
-  ].join("\n"), {
+  await ctx.reply("<b>Menu Hermes</b>", {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...keyboard()
@@ -572,10 +565,7 @@ bot.command(["lich", "schedule", "workschedule"], async (ctx) => {
 
 bot.action("action:menu", async (ctx) => {
   await ctx.answerCbQuery();
-  await ctx.reply([
-    "✨ <b>Menu Hermes</b>",
-    "<i>chọn ngày trước, xử lý việc sau</i>"
-  ].join("\n"), {
+  await ctx.reply("<b>Menu Hermes</b>", {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...keyboard()

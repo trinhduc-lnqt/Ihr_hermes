@@ -1331,8 +1331,21 @@ function splitHermesDateTime(value) {
   return { date: match[1], time: match[2] };
 }
 
+function normalizeVietnamPhone(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const compact = raw.replace(/[\s.\-]/g, "");
+  if (/^84\d{8,11}$/.test(compact)) {
+    return `0${compact.slice(2)}`;
+  }
+  if (/^\+84\d{8,11}$/.test(compact)) {
+    return `0${compact.slice(3)}`;
+  }
+  return raw;
+}
+
 function htmlPhone(value) {
-  const text = displayValue(value);
+  const text = displayValue(normalizeVietnamPhone(value));
   if (text === "---") return text;
   return `<code>${escapeHtml(text)}</code>`;
 }
@@ -1407,37 +1420,35 @@ export function formatRequestOrderDetailHtml(order, { checkedAt = new Date() } =
   const deploymentTime = splitHermesDateTime(order?.deploymentTime);
   const requestOrderType = getRequestOrderTypeLabel(order);
   const storeLine = [storeName, storeId ? `#${storeId}` : ""].filter(Boolean).join(" • ");
-  const saleLine = [saleName, saleEmail, order?.salePhone].filter((value) => usefulText(value)).join(" • ");
-  const contactLine = [contactName, contactPhone].filter((value) => usefulText(value)).join(" • ");
   const scheduleLine = [deploymentTime.date, deploymentTime.time !== "---" ? deploymentTime.time : "", usefulText(order?.deployTechForm)].filter(Boolean).join(" • ");
 
   return compactLines([
-    `📋 <b>PYC #${htmlValue(order?.roCode)}</b> ${htmlValue(order?.productCode ? `— ${order.productCode}` : "")}`.trim(),
-    `<b>${htmlValue(requestOrderType)}</b> • ${htmlValue(mapDeployStatus(order?.spStatus))}`,
+    `📋 <b>PYC #${htmlValue(order?.roCode)}</b>${order?.productCode ? ` — <b>${htmlValue(order.productCode)}</b>` : ""}`,
+    `${htmlValue(requestOrderType)} • ${htmlValue(mapDeployStatus(order?.spStatus))}`,
     hermesUrl ? `🔗 ${htmlLink("Mở Hermes", hermesUrl)}` : "",
     `⏱ <i>${htmlValue(checkedAtText)}</i>`,
     "",
-    "<b>┏━━ 📍 KHÁCH HÀNG</b>",
-    customerName ? `• <b>Khách:</b> ${htmlValue(customerName)}` : "",
-    storeLine ? `• <b>Cửa hàng:</b> ${htmlValue(storeLine)}` : "",
-    address ? `• <b>Địa chỉ:</b> ${htmlValue(address)}` : "",
-    order?.companyId ? `• <b>Company ID:</b> <code>${htmlValue(order.companyId)}</code>` : "",
+    "<b>📍 Khách hàng</b>",
+    customerName ? `Khách: ${htmlValue(customerName)}` : "",
+    storeLine ? `Cửa hàng: ${htmlValue(storeLine)}` : "",
+    address ? `Địa chỉ: ${htmlValue(address)}` : "",
+    order?.companyId ? `Company ID: <code>${htmlValue(order.companyId)}</code>` : "",
     "",
-    "<b>┏━━ ☎️ LIÊN HỆ</b>",
-    contactLine ? `• <b>Khách liên hệ:</b> ${htmlValue(contactName || "---")}${contactPhone ? ` • ${htmlPhone(contactPhone)}` : ""}` : "",
-    saleLine ? `• <b>Sale:</b> ${htmlValue([saleName, saleEmail].filter((value) => usefulText(value)).join(" • "))}${order?.salePhone ? ` • ${htmlPhone(order.salePhone)}` : ""}` : "",
+    "<b>☎️ Liên hệ</b>",
+    contactName || contactPhone ? `Khách liên hệ: ${htmlValue(contactName || "---")}${contactPhone ? ` • ${htmlPhone(contactPhone)}` : ""}` : "",
+    saleName || saleEmail || order?.salePhone ? `Sale: ${htmlValue([saleName, saleEmail].filter((value) => usefulText(value)).join(" • ") || "---")}${order?.salePhone ? ` • ${htmlPhone(order.salePhone)}` : ""}` : "",
     "",
-    "<b>┏━━ 🛠 TRIỂN KHAI</b>",
-    scheduleLine ? `• <b>Lịch:</b> ${htmlValue(scheduleLine)}` : "",
-    requestOrderType ? `• <b>Loại:</b> ${htmlValue(requestOrderType)}` : "",
-    deployer ? `• <b>Người xử lý:</b> ${htmlValue(deployer)}` : "",
-    leader ? `• <b>Leader:</b> ${htmlValue(leader)}` : "",
-    order?.spAssignedAt ? `• <b>Phân lịch:</b> ${htmlValue(displayValue(order.spAssignedAt))}${order?.spAssignedBy ? ` • ${htmlValue(order.spAssignedBy)}` : ""}` : "",
+    "<b>🛠 Triển khai</b>",
+    scheduleLine ? `Lịch: ${htmlValue(scheduleLine)}` : "",
+    requestOrderType ? `Loại: ${htmlValue(requestOrderType)}` : "",
+    deployer ? `Người xử lý: ${htmlValue(deployer)}` : "",
+    leader ? `Leader: ${htmlValue(leader)}` : "",
+    order?.spAssignedAt ? `Phân lịch: ${htmlValue(displayValue(order.spAssignedAt))}${order?.spAssignedBy ? ` • ${htmlValue(order.spAssignedBy)}` : ""}` : "",
     "",
-    "<b>┏━━ 📝 CẦN LÀM</b>",
-    note ? `• ${htmlValue(note)}` : "• Không có ghi chú.",
+    "<b>📝 Cần làm</b>",
+    note ? htmlValue(note) : "Không có ghi chú.",
     "",
-    "<b>┏━━ 📦 DỊCH VỤ / THIẾT BỊ</b>",
+    "<b>📦 Dịch vụ / Thiết bị</b>",
     formatRequestOrderProductsHtml(order?.details, order?.devices)
   ]);
 }
