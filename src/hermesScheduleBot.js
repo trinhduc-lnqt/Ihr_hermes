@@ -33,6 +33,7 @@ assertBotConfig();
 const bot = new Telegraf(config.telegramToken);
 const pendingActions = new Map();
 const workScheduleCache = new Map();
+const lastBotMessageByChat = new Map();
 const startedAt = new Date();
 let instanceLockServer = null;
 let queue = Promise.resolve();
@@ -89,23 +90,9 @@ async function isAllowedUser(ctx) {
 function keyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback("📌 Tổng hợp", "action:today_dashboard"), Markup.button.callback("🎯 KPI", "action:hermes_kpi")],
-
-    [Markup.button.callback("🗓️ Lịch làm việc", "action:hermes_work_offset:0")],
-    [
-      Markup.button.callback("⬅️ Hôm qua", "action:hermes_work_offset:-1"),
-      Markup.button.callback("📅 Hôm nay", "action:hermes_work_offset:0"),
-      Markup.button.callback("➡️ Ngày mai", "action:hermes_work_offset:1")
-    ],
-    [Markup.button.callback("🗂️ Cả tuần", "action:hermes_work_week")],
-
-    [Markup.button.callback("📋 Lịch trực", "action:duty_today")],
-    [
-      Markup.button.callback("📅 Hôm nay", "action:duty_today"),
-      Markup.button.callback("🗓️ Cả tuần", "action:duty_week")
-    ],
-
-    [Markup.button.callback("🔐 Tài khoản", "action:hermes_account"), Markup.button.callback("👤 User", "action:hermes_current_user")],
-    [Markup.button.callback("🗑️ Xoá tài khoản", "action:delete_hermes")]
+    [Markup.button.callback("🗓️ Lịch làm việc", "action:hermes_work_menu")],
+    [Markup.button.callback("📋 Lịch trực", "action:duty_menu")],
+    [Markup.button.callback("🔐 Tài khoản", "action:hermes_account_menu")]
   ]);
 }
 
@@ -132,9 +119,13 @@ function workScheduleKeyboard(result, cacheKey) {
   }
   rows.push([
     Markup.button.callback("⬅️ Hôm qua", `action:hermes_work_date:${result.targetDate}:-1`),
-    Markup.button.callback("➡️ Ngày mai", `action:hermes_work_date:${result.targetDate}:1`),
-    Markup.button.callback("📆 Chọn ngày khác", "action:hermes_work_other")
+    Markup.button.callback("➡️ Ngày mai", `action:hermes_work_date:${result.targetDate}:1`)
   ]);
+  rows.push([
+    Markup.button.callback("📅 Hôm nay", "action:hermes_work_offset:0"),
+    Markup.button.callback("🗂️ Cả tuần", "action:hermes_work_week")
+  ]);
+  rows.push([Markup.button.callback("📆 Chọn ngày khác", "action:hermes_work_other")]);
   rows.push([Markup.button.callback("🏠 Về menu chính", "action:menu")]);
   return Markup.inlineKeyboard(rows);
 }
@@ -165,11 +156,59 @@ function dutyKeyboard(date = new Date()) {
   return Markup.inlineKeyboard([
     [
       Markup.button.callback("⬅️ Hôm qua", `action:duty_date:${targetDateText}:-1`),
-      Markup.button.callback("📅 Hôm nay", "action:duty_today"),
       Markup.button.callback("➡️ Ngày mai", `action:duty_date:${targetDateText}:1`)
     ],
-    [Markup.button.callback("🗓️ Lịch trực cả tuần", "action:duty_week")],
-    [Markup.button.callback("📆 Chọn ngày khác", "action:duty_other"), Markup.button.callback("🏠 Menu", "action:menu")]
+    [
+      Markup.button.callback("📅 Hôm nay", "action:duty_today"),
+      Markup.button.callback("🗓️ Cả tuần", "action:duty_week")
+    ],
+    [Markup.button.callback("📆 Chọn ngày khác", "action:duty_other")],
+    [Markup.button.callback("🏠 Về menu chính", "action:menu")]
+  ]);
+}
+
+function workMenuKeyboard() {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback("⬅️ Hôm qua", "action:hermes_work_offset:-1"),
+      Markup.button.callback("📅 Hôm nay", "action:hermes_work_offset:0"),
+      Markup.button.callback("➡️ Ngày mai", "action:hermes_work_offset:1")
+    ],
+    [Markup.button.callback("🗂️ Cả tuần", "action:hermes_work_week")],
+    [Markup.button.callback("📆 Chọn ngày khác", "action:hermes_work_other")],
+    [Markup.button.callback("🏠 Về menu chính", "action:menu")]
+  ]);
+}
+
+function dutyMenuKeyboard() {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback("⬅️ Hôm qua", `action:duty_date:${new Intl.DateTimeFormat("en-CA", {
+        timeZone: config.timezoneId,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(new Date())}:-1`),
+      Markup.button.callback("📅 Hôm nay", "action:duty_today"),
+      Markup.button.callback("➡️ Ngày mai", `action:duty_date:${new Intl.DateTimeFormat("en-CA", {
+        timeZone: config.timezoneId,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(new Date())}:1`)
+    ],
+    [Markup.button.callback("🗓️ Cả tuần", "action:duty_week")],
+    [Markup.button.callback("📆 Chọn ngày khác", "action:duty_other")],
+    [Markup.button.callback("🏠 Về menu chính", "action:menu")]
+  ]);
+}
+
+function accountMenuKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback("👤 Xem tài khoản", "action:hermes_current_user")],
+    [Markup.button.callback("🔐 Cập nhật tài khoản", "action:hermes_account")],
+    [Markup.button.callback("🗑️ Xoá tài khoản", "action:delete_hermes")],
+    [Markup.button.callback("🏠 Về menu chính", "action:menu")]
   ]);
 }
 
@@ -203,6 +242,26 @@ function formatHermesAccountStatus(account) {
     `Cập nhật: ${account.updatedAt ? formatDateTime(new Date(account.updatedAt)) : "không rõ"}`,
     `Session Hermes: ${account.hermesSession ? "đang có" : "chưa có"}`
   ].join("\n");
+}
+
+async function deleteLastBotMessage(ctx) {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+  const lastMessageId = lastBotMessageByChat.get(chatId);
+  if (!lastMessageId) return;
+  try {
+    await ctx.telegram.deleteMessage(chatId, lastMessageId);
+  } catch {}
+  lastBotMessageByChat.delete(chatId);
+}
+
+async function replyFresh(ctx, text, extra = undefined) {
+  await deleteLastBotMessage(ctx);
+  const sent = await ctx.reply(text, extra);
+  if (sent?.message_id && ctx.chat?.id) {
+    lastBotMessageByChat.set(ctx.chat.id, sent.message_id);
+  }
+  return sent;
 }
 
 const DUTY_SHEET_GVIZ_URL = "https://docs.google.com/spreadsheets/d/1gWlj6NObCw0AMKBK5GW_2_mCPs6WoF73bNe7QgkGBDc/gviz/tq?tqx=out:json&gid=1110843393";
@@ -669,7 +728,7 @@ function rememberWorkSchedule(ctx, result) {
 
 async function askWorkScheduleOtherDate(ctx) {
   pendingActions.set(ctx.chat.id, { stage: "hermes_schedule_date" });
-  await ctx.reply([
+  await replyFresh(ctx, [
     "📆 <b>Chọn ngày cần xem lịch</b>",
     "",
     "Sếp chỉ cần gửi một trong các dạng sau:",
@@ -686,7 +745,7 @@ async function askWorkScheduleOtherDate(ctx) {
 
 async function askDutyOtherDate(ctx) {
   pendingActions.set(ctx.chat.id, { stage: "duty_schedule_date" });
-  await ctx.reply([
+  await replyFresh(ctx, [
     "📆 <b>Chọn ngày cần xem lịch trực</b>",
     "",
     "Sếp chỉ cần gửi một trong các dạng sau:",
@@ -704,7 +763,7 @@ async function askDutyOtherDate(ctx) {
 async function getHermesAccountOrReply(ctx) {
   const account = await getHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
   if (!account?.hermesUsername || !account?.hermesPassword) {
-    await ctx.reply("Chưa có tài khoản Hermes. Gửi /sethermes để lưu trước nhé Sếp.", keyboard());
+    await replyFresh(ctx, "Chưa có tài khoản Hermes. Gửi /sethermes để lưu trước nhé Sếp.", keyboard());
     return null;
   }
   return account;
@@ -736,7 +795,7 @@ async function showWorkSchedule(ctx, date = new Date()) {
     await saveHermesSession({ secret: config.botSecretKey, chatId: ctx.chat.id, storageState: result.storageState });
   }
   const cacheKey = rememberWorkSchedule(ctx, result);
-  await ctx.reply(formatWorkScheduleResult(result), {
+  await replyFresh(ctx, formatWorkScheduleResult(result), {
     parse_mode: "HTML",
     ...workScheduleKeyboard(result, cacheKey)
   });
@@ -854,13 +913,13 @@ function formatKpiMonthTelegramHtml(monthData, item) {
 }
 
 async function showKpiSummary(ctx) {
-  await ctx.reply("Đang tải danh sách tháng KPI...");
+  await replyFresh(ctx, "Đang tải danh sách tháng KPI...");
   const result = await enqueue(() => getKpiSummary());
   if (!result?.ok) {
     await ctx.reply(`Không tải được KPI.\n${String(result?.message || "Lỗi không xác định").slice(0, 700)}`, keyboard());
     return;
   }
-  await ctx.reply([
+  await replyFresh(ctx, [
     "🎯 <b>KPI theo tháng</b>",
     "",
     "Theo dõi KPI đều để biết mình đang bứt tốc hay bị hụt hơi trong tháng này.",
@@ -903,7 +962,7 @@ async function showKpiMonth(ctx, month) {
     await ctx.reply(`Không tìm thấy KPI của tài khoản ${account.hermesUsername} trong sheet ${month}.`, keyboard());
     return;
   }
-  await ctx.reply(formatKpiMonthTelegramHtml(monthData, item), {
+  await replyFresh(ctx, formatKpiMonthTelegramHtml(monthData, item), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...kpiKeyboard(result.months || [])
@@ -913,13 +972,13 @@ async function showKpiMonth(ctx, month) {
 async function showDutySchedule(ctx, date = new Date()) {
   try {
     const result = await fetchDutyScheduleByDate(date);
-    await ctx.reply(formatDutyScheduleHtml(result), {
+    await replyFresh(ctx, formatDutyScheduleHtml(result), {
       parse_mode: "HTML",
       disable_web_page_preview: true,
       ...dutyKeyboard(date)
     });
   } catch (error) {
-    await ctx.reply(`Không tải được lịch trực Google Sheet.\n${String(error.message || error).slice(0, 700)}`, dutyKeyboard(date));
+    await replyFresh(ctx, `Không tải được lịch trực Google Sheet.\n${String(error.message || error).slice(0, 700)}`, dutyKeyboard(date));
   }
 }
 
@@ -931,7 +990,7 @@ async function showDutyScheduleWeek(ctx, date = new Date()) {
     const result = await fetchDutyScheduleByDate(targetDate);
     parts.push(formatDutyScheduleHtml(result));
   }
-  await ctx.reply(parts.join("\n\n"), {
+  await replyFresh(ctx, parts.join("\n\n"), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...dutyKeyboard(date)
@@ -987,7 +1046,7 @@ async function showTodayDashboard(ctx) {
     sections.push("", "🗓️ <b>Lịch Hermes + KPI</b>\nChưa lưu tài khoản Hermes. Gửi <code>/sethermes user password</code> để bot ghép đủ dashboard cho Sếp.");
   }
 
-  await ctx.reply(sections.join("\n"), {
+  await replyFresh(ctx, sections.join("\n"), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...keyboard()
@@ -1028,7 +1087,7 @@ async function showWorkScheduleWeek(ctx, date = new Date()) {
     results.push(result);
   }
 
-  await ctx.reply(formatWeekScheduleResult(results), {
+  await replyFresh(ctx, formatWeekScheduleResult(results), {
     parse_mode: "HTML",
     ...keyboard()
   });
@@ -1042,7 +1101,7 @@ bot.start(async (ctx) => {
     await ctx.reply(buildUnauthorizedText(ctx), Markup.removeKeyboard());
     return;
   }
-  await ctx.reply(helpText(ctx.from.id), {
+  await replyFresh(ctx, helpText(ctx.from.id), {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...keyboard()
@@ -1054,7 +1113,7 @@ bot.command("id", async (ctx) => {
 });
 
 bot.command("menu", async (ctx) => {
-  await ctx.reply("<b>Menu Hermes</b>", {
+  await replyFresh(ctx, "<b>Menu Hermes</b>", {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...keyboard()
@@ -1149,10 +1208,38 @@ bot.command(["lich", "schedule", "workschedule"], async (ctx) => {
 
 bot.action("action:menu", async (ctx) => {
   await ctx.answerCbQuery();
-  await ctx.reply("<b>Menu Hermes</b>", {
+  await replyFresh(ctx, "<b>Menu Hermes</b>", {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...keyboard()
+  });
+});
+
+bot.action("action:hermes_work_menu", async (ctx) => {
+  await ctx.answerCbQuery();
+  await replyFresh(ctx, "🗓️ <b>Lịch làm việc</b>\nChọn mốc thời gian anh muốn xem.", {
+    parse_mode: "HTML",
+    ...workMenuKeyboard()
+  });
+});
+
+bot.action("action:duty_menu", async (ctx) => {
+  await ctx.answerCbQuery();
+  await replyFresh(ctx, "📋 <b>Lịch trực</b>\nChọn mốc thời gian anh muốn xem.", {
+    parse_mode: "HTML",
+    ...dutyMenuKeyboard()
+  });
+});
+
+bot.action("action:hermes_account_menu", async (ctx) => {
+  await ctx.answerCbQuery();
+  const account = await getHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
+  const summary = account?.hermesUsername
+    ? `🔐 <b>Tài khoản Hermes</b>\nĐang lưu: <b>${escapeHtml(account.hermesUsername)}</b>`
+    : "🔐 <b>Tài khoản Hermes</b>\nChưa lưu tài khoản.";
+  await replyFresh(ctx, summary, {
+    parse_mode: "HTML",
+    ...accountMenuKeyboard()
   });
 });
 
@@ -1226,29 +1313,29 @@ bot.action("action:hermes_account", async (ctx) => {
   await ctx.answerCbQuery();
   const account = await getHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
   if (account?.hermesUsername) {
-    await ctx.reply(`Đang lưu tài khoản Hermes: ${account.hermesUsername}\nMuốn đổi thì gửi /sethermes.`);
+    await replyFresh(ctx, `Đang lưu tài khoản Hermes: ${account.hermesUsername}\nMuốn đổi thì gửi /sethermes.`, accountMenuKeyboard());
     return;
   }
   pendingActions.set(ctx.chat.id, { stage: "hermes_credentials" });
-  await ctx.reply([
+  await replyFresh(ctx, [
     "Chưa lưu tài khoản Hermes.",
     "Gửi user và password Hermes trong tin nhắn tiếp theo.",
     "Mẫu:",
     "username Abc123@"
-  ].join("\n"));
+  ].join("\n"), accountMenuKeyboard());
 });
 
 bot.action("action:hermes_current_user", async (ctx) => {
   await ctx.answerCbQuery();
   const account = await getHermesAccount({ secret: config.botSecretKey, chatId: ctx.chat.id });
-  await ctx.reply(formatHermesAccountStatus(account), keyboard());
+  await replyFresh(ctx, formatHermesAccountStatus(account), keyboard());
 });
 
 bot.action("action:delete_hermes", async (ctx) => {
   await ctx.answerCbQuery();
   const removed = await deleteHermesAccount(ctx.chat.id);
   pendingActions.delete(ctx.chat.id);
-  await ctx.reply(removed ? "Đã xoá tài khoản Hermes đã lưu." : "Không tìm thấy tài khoản Hermes để xoá.", keyboard());
+  await replyFresh(ctx, removed ? "Đã xoá tài khoản Hermes đã lưu." : "Không tìm thấy tài khoản Hermes để xoá.", keyboard());
 });
 
 bot.action(/^action:hermes_work_detail:(.+):(\d+)$/, async (ctx) => {
